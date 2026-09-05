@@ -1,0 +1,36 @@
+GIẢI THÍCH 
+optimizer.zero_grad()
+    - Pytorch cộng dồn gradient vào .grad của mỗi tham số mỗi lần gọi bachward
+    thay vì tự động ghi đè. Nếu không xóa, gradient của batch này sẽ bị cộng 
+    chồng lên gradient của batch trước dẫn đến cập nhật sai trọng số
+    - Vì vật trước mỗi batch mớim phải reset gradient về 0 
+
+logits = model(images)
+    - Ảnh đầu vào (images, tensor [B,3,224,224]) được đưa qua toàn bộ mạng: các lớp Conv → ReLU → MaxPool → Flatten → Linear.
+    Đây gọi là forward pass, tương ứng với hàm forward() bạn định nghĩa trong SimpleCNN.
+    - Kết quả trả về là logits — điểm số thô cho mỗi lớp ([B, 2] với 2 lớp Helmet/No Helmet), chưa qua softmax, có thể âm hoặc dương, 
+    chưa phải xác suất
+loss = criterion(logits, labels)
+    - criterion thường dùng Cross Entropy Loss để tính sai số 
+    - Hàm này so sánh logits (dự đoán) với labels (nhãn thật, ví dụ 0 = Helmet, 1 = No Helmet) và trả về một số duy nhất thể hiện 
+    mô hình đang sai bao nhiêu.
+loss.backward()
+    - Đây là bước dùng chain rule (quy tắc đạo hàm chuỗi) để tính gradient (đạo hàm) của loss theo từng tham số (từng trọng 
+    số w, b trong các lớp Conv/Linear)
+    - Nếu tăng nhẹ tham số này thì loss tăng hay giảm, và mức độ bao nhiêu. Kết quả được lưu vào thuộc tính .grad của mỗi tham số. 
+    Bước này chưa thay đổi trọng số, chỉ tính toán hướng cần điều chỉnh
+optimizer.step()
+    - Dựa vào gradient vừa tính, optimizer cập nhật thực sự các trọng số theo hướng làm giảm loss:
+    w_mới = w_cũ - learning_rate × gradient   (công thức đơn giản hóa của Adam/SGD)
+    - Sau bước này, mô hình đã "học" được một chút từ batch dữ liệu vừa xử lý
+
+Tóm tắt luồng dữ liệu
+Ảnh vào → [Forward: model(images)] → logits
+                                        ↓
+                        [So sánh với nhãn thật: criterion] → loss (một số)
+                                        ↓
+                        [Backward: loss.backward()] → gradient cho từng w, b
+                                        ↓
+                        [Update: optimizer.step()] → trọng số mới
+
+5 dòng này lặp lại cho mỗi batch, và toàn bộ vòng lặp qua hết dataset một lần gọi là 1 epoch

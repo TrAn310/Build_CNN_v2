@@ -1,0 +1,21 @@
+- CIFAR-10 hoặc subset 2 lớp
+    CIFAR-10 là dataset gồm 10 class
+    Subset 2 lớp nghĩa là lấy 2 trong 10 class đó
+
+- Tại sao không dùng test set để chọn model?
+    Không dùng test set để chọn model vì test set phải được giữ độc lập. Ta dùng validation set để chọn model tốt nhất, sau đó chỉ 
+    dùng test set một lần để đánh giá cuối cùng
+- Batch size ảnh hưởng gì tới memory và gradient?
+    Batch size là số lượng ảnh được đưa vào model trong một lần forward và backward
+    Khi Batch size nhỏ: 
+    + Tốn ít RAM hơn 
+    + Gradient có thể dao động nhiều hơn do được tính từ ít mẫu 
+    + Có nhiều lần cập nhật trọng số hơn trong một epoch 
+    Khi Batch size lớn:
+    + Cần nhiều RAM hơn 
+    + Gradient tính trên nhiều mẫu hơn thường ổn định hơn 
+    + Số lần cập nhật trọng số trong một epoch giảm 
+
+- Logit khác probability như thế nào?
+    Logit là đầu ra thô của model, còn probability là xác suất sau Softmax. CrossEntropyLoss trong PyTorch nhận trực tiếp logits 
+    nên không cần Softmax trước loss

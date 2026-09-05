@@ -1,0 +1,13 @@
+LAB 8.1 - CLASSIFICATION REPORT
+============================================================
+
+                  precision    recall  f1-score   support
+
+   co_khau_trang     0.9537    0.9571    0.9554       560
+khong_khau_trang     0.9581    0.9548    0.9564       575
+
+        accuracy                         0.9559      1135
+       macro avg     0.9559    0.9560    0.9559      1135
+    weighted avg     0.9560    0.9559    0.9559      1135
+
+Accuracy: 0.9559

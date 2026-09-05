@@ -1,0 +1,29 @@
+* Giải thích các ký hiệu TP, FP, TN, FN 
+
+
+Ta quy ước: Có khẩu trang là Positive, không có khẩu trang là Negative 
+- TP: Thực tế có khẩu trang và Model đoán cũng đoán có khẩu trang 
+- TN: Thực tế không có khẩu trang và Model cũng đoán không có khẩu trang 
+- FP: Thực tế không có khẩu trang nhưng Model đoán có khẩu trang 
+- FN: Thực tế có khẩu trang nhưng Model đoán không có khẩu trang 
+
+| Ground Truth / Prediction | Mask   | No Mask |
+| ------------------------- | -----: | --------|
+| **Mask**                  |   TP   |   FN    |
+| **No Mask**               |   FP   |   TN    |
+
+* Giải thích Precision (Độ chính xác)
+- Trong tất cả những trường hợp model đoán là có khẩu trang, có bao nhiêu trường hợp thực sự là có khẩu trang 
+                                        Precision = TP/ (TP+FP)
+* Giải thích Recall 
+- Trong tất cả những trường hợp thực tế là có khẩu trang, model phát hiện đúng được bao nhiêu trường hợp?\
+                                        Recall = TP/ (TP+FN)
+SO SÁNH 
+- Precision: Cảnh báo có đáng tin k ?
+- Recall: Có bỏ sót người vi phạm k ?
+
+* Giải thích F1-score 
+- F1-score biểu thị Precision và Recall có cân bằng tốt không?
+
+* Giải thích Accuracy 
+- Accuracy là chỉ số đo lường tỷ lệ phần trăm giữa tổng số dự đoán đúng và tổng số mẫu trong tập dữ liệu

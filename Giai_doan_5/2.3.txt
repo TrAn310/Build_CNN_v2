@@ -1,0 +1,9 @@
+- Logits là mảng hoặc vecto chứa điểm số thô do lớp
+cuối cùng của mô hình tính ra trước khi đi qua hàm 
+kích hoạt như Sigmoid hoặc Softmax để đổi thành xác xuất 
+    + Logits có thể là số thực âm tới dương
+    + Không phải là phần trăm hay xác xuất nên k thể
+    dùng trực tiếp để kết luận thuộc class nào 
+- Softmax tương tự như Sigmoid là 1 hàm kích hoạt như Sigmoid
+- Log-softmax là phép toán lấy logarit tự nhiên của hàm softmax
+    + Chuyển đổi một vecto điểm số thô thành vecto log xác suất 

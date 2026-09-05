@@ -1,0 +1,62 @@
+Bài 1. Input 128×128×3 qua Conv 5×5, stride=1, padding=2, 32 filter. Tính output shape và số 
+tham số.
+    Với Input 128x128x3 
+    H_out = (( 128 + 2x2 - 5 )/ 1)+ 1= 128
+    H_in = (( 128 + 2x2 - 5 )/ 1)+ 1= 128
+    Số tham số = 32 x (3x5x5 + 1) = 2432 tham số 
+Bài 2. Input 64×64×16 qua Conv 3×3, stride=2, padding=1, 32 filter. Tính output shape.
+    Với Input 128x128x3 
+    H_out = (( 64 + 2x1 - 3 )/ 2)+ 1= 32
+    H_in = (( 64 + 221 - 3 )/ 2)+ 1= 32
+Bài 3. So sánh số tham số của Conv2d(3,16,3) với Fully Connected nối ảnh 224×224×3 đến 16 neuron
+- Conv2d(3,16,3)
+    Số tham số = 32 x (3x5x5 + 1) = 2432 tham số 
+- Fully connected 
+    Flatten (224,224,3) = 224 x 224 x 3 = 150528 neuron
+    Kết nối với 16 neuron: 150528 x 16 = 2408448
+    Kết nối với 16 neuron mỗi neuron 1 bias: 2408448 + 16 = 2408464 tham số 
+Như vậy ta thấy Conv2d có số tham số nhỏ hơn rất nhiều so với với Fully Connected 
+    
+Bài 4. Giải thích tại sao MaxPooling có thể gây bất lợi khi vật thể cần phát hiện rất nhỏ.
+
+MaxPooling làm giảm kích thước feature map bằng cách chỉ giữ lại giá trị lớn nhất trong mỗi 
+vùng pooling và loại bỏ các giá trị còn lại. Điều này giúp giảm số phép tính và tăng tốc độ 
+xử lý, nhưng đồng thời cũng làm mất một phần thông tin không gian của ảnh. Đối với các vật 
+thể nhỏ, số pixel biểu diễn vật thể vốn đã ít. Sau nhiều lần MaxPooling, kích thước biểu diễn 
+của vật thể có thể giảm xuống rất nhỏ hoặc mất hẳn, khiến mô hình khó nhận biết và định vị chính 
+xác. Vì vậy, MaxPooling có thể gây bất lợi trong các bài toán phát hiện vật thể nhỏ như mũ bảo 
+hộ, khẩu trang hoặc biển báo giao thông. Các mô hình hiện đại như YOLO thường sử dụng convolution
+với stride = 2 kết hợp đặc trưng đa tỉ lệ (multi-scale features) để giảm kích thước feature map 
+mà vẫn bảo toàn nhiều thông tin hơn về các vật thể nhỏ.
+
+Bài 5. Viết sơ đồ tensor cho chuỗi: Conv(3→16) → Pool2 → Conv(16→32) → Pool2 với input 224×224.
+- Input 3x224x224
+- Conv2d 16x224x224
+- Pooling kernel 2x2, stride = 2: 16x112x112
+- Conv2d 32x112x112
+- Pooling kernel 2x2, stride = 2: 32x56x56
+
+
+Bài 6. Trình bày khác nhau giữa kernel size, số filter và số channel.
+- Kernel Size là kích thước của bộ lọc (ví dụ 3×3 hoặc 5×5), quyết định mỗi lần tích chập sẽ quan 
+sát một vùng ảnh lớn hay nhỏ.
+
+- Số Filter là số lượng bộ lọc được sử dụng trong lớp tích chập. Mỗi filter có một bộ trọng số 
+riêng và tạo ra đúng một feature map. Vì vậy, số filter cũng chính là số output channel.
+
+- Số Channel là số lớp dữ liệu của ảnh hoặc feature map. Ảnh RGB có 3 channel (R, G, B). 
+Sau lớp Conv2D(3,16,3), đầu ra có 16 channel vì có 16 filter tạo ra 16 feature map
+
+Bài 7. Giải thích local connectivity và weight sharing bằng ví dụ ảnh mũ bảo hộ.
+- Local Connectivity là cơ chế trong CNN mà mỗi kernel chỉ xử lý một vùng nhỏ của ảnh (ví dụ 3×3)
+thay vì kết nối với toàn bộ ảnh như mạng Fully Connected. Nhờ đó, CNN có thể học các đặc trưng
+cục bộ như cạnh, góc hoặc texture và giảm đáng kể số tham số.
++ Nếu kh có Local Connectivity thì mỗi neuron sẽ nhìn toàn bộ ảnh như Fully 
+
+- Weight Sharing là cơ chế sử dụng cùng một bộ trọng số của kernel để quét qua toàn bộ ảnh. Ví 
+dụ trong bài toán phát hiện mũ bảo hộ, nếu kernel đã học được đặc trưng của mép mũ, thì dù chiếc 
+mũ xuất hiện ở góc trái, giữa hay góc phải của ảnh, kernel vẫn có thể phát hiện vì cùng một bộ 
+trọng số được áp dụng tại mọi vị trí. Cơ chế này giúp CNN giảm số tham số và tăng khả năng nhận 
+diện đối tượng ở các vị trí khác nhau trong ảnh.
++ Nếu k có weight sharing thì khi kernel trượt qua từng vị trí thì mỗi vị trí phải có 1 bộ 
+kernel riêng, ví dụ ảnh 224x224 stride = 1 thì cần 50176 kernel 

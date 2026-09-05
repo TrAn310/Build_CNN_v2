@@ -1,0 +1,19 @@
+1. Vì sao output có 8 channel?
+
+Output có 8 channel vì lớp Conv2D được khai báo với out_channels = 8, tức sử dụng 8 filter.
+Mỗi filter quét toàn bộ ảnh đầu vào và tạo ra đúng một feature map. Do đó, đầu ra gồm 
+8 feature map được xếp chồng lên nhau, tạo thành tensor có 8 channel.
+
+2. ReLU đã thay đổi feature map như thế nào?
+
+ReLU áp dụng hàm f(x)=max(0,x), tức là các giá trị âm bị đưa về 0, còn các giá trị dương được 
+giữ nguyên. Vì vậy, sau ReLU, các feature map thường có nhiều vùng màu đen hơn do các 
+activation âm bị loại bỏ, trong khi các đặc trưng quan trọng như cạnh hoặc đường viền vẫn 
+được giữ lại.
+
+3. Tăng số filter có làm tăng độ phân giải không?
+
+Không. Tăng số filter chỉ làm tăng số lượng feature map (số channel), giúp mô hình học được 
+nhiều đặc trưng hơn. Kích thước không gian của feature map (chiều cao và chiều rộng) vẫn giữ 
+nguyên nếu các tham số như stride, padding và kernel_size không thay đổi. Chỉ khi thay đổi 
+các tham số này hoặc dùng các lớp như Pooling thì độ phân giải mới thay đổi.

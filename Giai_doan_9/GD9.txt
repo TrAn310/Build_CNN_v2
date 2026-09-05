@@ -1,0 +1,88 @@
+Classification và Object Detection 
+- Ở bài toán phân loại ảnh đi vào và qua các lớp như conv, pooling,... và đưa ra 1 con số logits, sau đó đưa ra 1 nhãn duy nhất
+cho toàn bộ output, không phải là 1 nhãn cho 1 người 
+    + Khi ta đưa ảnh nhiều người vào thì model chỉ cho ra 1 logits duy nhất, nó không biết vùng ảnh nào ứng với người nào, kết
+    quả bị chi phối bởi vật to nhất hoặc người lớn nhất
+- Object Detection sẽ cho ra kết quả ảnh này có những object nào và vị trí cụ thể của object đấy ở đâu 
+    + Số lượng output không cố định, 1 ảnh có thể 2 hay 20 object 
+
+CNN (Giai đoạn 4-5):        Ảnh → Feature map
+Classification (Gđ 6-8):    Feature → 1 Class cho toàn ảnh
+Detection (Gđ 9): Feature → Nhiều Box + Class + Confidence → NMS
+
+Bounding box
+- Như ở trên đã trình bày, detection cần trả lời câu hỏi object đó nằm ở đâu, bounding box giải quyết vấn đề đấy bằng việc tạo
+một hình chữ nhật bao quanh vật thể bằng các tọa độ 
+- Bài toán phân loại không cần vì kết quả trả về logit gồm 2 class có hoặc không, không cần xác định chính xác object nằm ở đâu
+- Tọa độ bounding box được biểu diễn bằng 2 cách:
+    + Hai góc (x1,y1,x2,y2) 
+    x1,y2: Tọa độ góc trên, trái
+    x2,y2: Tọa độ góc dưới, phải 
+    + Tâm + kích thước: x_center, y_center,w,h
+    (x_Center, y_center): tọa độ tâm của box
+    w: chiều rộng 
+    h: chiều cao
+
+Nhắc tại hệ tọa độ trong xử lý ảnh 
+- Gốc (0,0) nằm ở góc trên-trái 
+- x tăng dần sang phải 
+- y tăng dần xuống dưới 
+
+Vì sao thường chuẩn hóa giá trị pixel xuống [0,1] 
+- Vì bounding box thường phụ thuộc vào kích thước ảnh cụ thể. Ví dụ ta train trên ảnh 640x640 nhưng khi đưa vào các ảnh có kích
+thước ảnh khác đi thì tọa độ không còn tương đương nữa
+- Nên khi chuẩn hóa về [0,1] tọa độ sẽ chuyển về tương đương, ví dụ x= 0,3 nghĩa là tâm nằm ở 30% chiều rộng ảnh, tính từ trái sang 
+
+IoU (Intersection over Union) 
+- Khi model dự đoán 1 box (x,y,h,w) nhưng không biết box đó đã khoanh đúng chưa, model có thể nói đúng class nhưng vẽ bounding
+box sai vị trí 
+- Ở phần classification việc so sánh đúng sai rất đơn giản vì nó so với lable đúng, là 1 phép so sánh nhị phân
+- Nhưng với box thì không thể so sánh, vì thế ta cần 1 đại lượng để so mức độ trùng khớp theo tỷ lệ
+
+Intersection: phần diện tích mà cả hai box giao nhau
+Union: tổng diện tích mà ít nhất một trong hai box che phủ 
+Ground truth: box đúng do mình tự gán nhãn - đáp án đúng 
+Predicted Box: box do model xuất ra 
+
+Công thức IoU = Diện tích Intersection/ Diện tích Union 
+
+Ví dụ tính toán cụ thể
+Gound truth (100,100,300,300)
+Prediction (150,150,350,350) 
+
+Tính diện tích từng box
+Area_GT = w x h = (x2 - x1) x (y2 - y1) = (300 - 100) x (300 - 100) = 40000
+Area_Pred = w x h = (x2 - x1) x (y2 - y1) = (350 - 150) x (350 - 150) = 40000
+
+Tìm vùng giao (Intersection)
+
+Vì trục tọa độ bắt đầu từ góc trên trái giá trị tăng dần xuống dưới và sang phải nên để tìm vùng giao thoa 
+x1_inter = max (100,150) = 150 
+y1_inter = max (100,150) = 150 
+x2_inter = min (300,350) = 300
+y2_inter = min (300,350) = 300 
+
+width_inter = 300-150 = 150 
+height_inter = 300-150 = 150 
+
+Intersection = 150x150 = 22500 
+
+Tìm Union 
+Union = 40000 + 40000 - 22500 = 57500 
+
+Tính IoU: 
+IoU = 22500/57500 = 0.391
+Như vậy, hai box chồng lên nhau khoảng 39%, MODEL có phát hiện đúng khu vực nhưng bị lệch nhiều. Nếu ngưỡng đánh giá > 0.5 thì
+detection này sẽ bị tính là sai dù model nhìn gần đúng chỗ 
+
+NMS
+- Khi detect 1 cái mũ nhưng khi model quét nó không chỉ ra 1 box mà có thể tạo ra tới 4-5 box, lúc này ta cần loại bỏ các box 
+thừa để tránh hệ thống đếm nhầm, và nhìn đỡ rối mắt 
+- NMS có nhiệm vụ chọn ra 1 box tốt nhất đại diện cho mỗi object và xóa các box dư thừa 
+- Quy trình NMS:
+    1 Có danh sách box cùng class mỗi box có confidence riêng 
+    2 Sắp xếp các box theo thứ tự confidence giảm dần 
+    3 Giữ box có confidence cao nhất 
+    4 Tính IoU box vừa giữ lại với các box còn lại 
+    5 Xóa các box có IoU vượt ngưỡng mình set, vì IoU cao thì chứng tỏ 2 box này cùng 1 object 
+    6 Lặp lại nước 3 - 5 cho tới khi hết box 
