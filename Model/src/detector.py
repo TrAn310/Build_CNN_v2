@@ -12,6 +12,7 @@ import torch.nn as nn
 from Backbone import Backbone
 from neck import Neck
 from head import DetectionHead
+from utils.config_utils import load_dataset_config
 
 
 class MiniPPEDetector(nn.Module):
@@ -50,6 +51,13 @@ class MiniPPEDetector(nn.Module):
 
 
 if __name__ == "__main__":
+    import os
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    yaml_path = os.path.normpath(os.path.join(CURRENT_DIR, "..", "Data", "data.yaml"))
+ 
+    num_classes, class_names = load_dataset_config(yaml_path)
+    print("num_classes lấy từ data.yaml:", num_classes)
+    print("class_names:", class_names)
     # ---- TEST TOÀN BỘ MODEL VERSION 0.2 ----
     model = MiniPPEDetector(num_classes=3)
 
