@@ -1,7 +1,6 @@
 
 import torch
 
-
 def collate_fn(batch):
     """
     Args:

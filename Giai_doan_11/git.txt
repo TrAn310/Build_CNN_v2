@@ -7,3 +7,4 @@ git push origin main
 
 
 Nếu người kia làm 1 code mới muốn lưu về máy mình thì: git pull origin main
+

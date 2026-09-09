@@ -1,132 +1,198 @@
 """
 losses.py
 
-File này tính TOTAL LOSS cho detector, gồm 3 thành phần cộng lại:
-  - box_loss  : đo sai số vị trí/kích thước box   -> chỉ tính tại ô CÓ object
-  - obj_loss  : đo model có nhận ra "đây là object" không -> tính trên TOÀN BỘ lưới
-  - cls_loss  : đo model đoán đúng class (person/helmet/vest) không -> chỉ tính tại ô CÓ object
+Detection Loss cho single-scale detector (P5, grid 20x20, stride 32).
 
-Lý do tách 3 loss riêng: mỗi cái đo một loại sai số khác nhau về bản chất toán học
-(box là hồi quy số thực, objectness là nhị phân có/không, class là phân loại đa lớp),
-nên không thể gộp chung 1 công thức.
+Nhận:
+    raw_pred:   [B, 5+C, H, W]   output thô từ Detection Head (CHƯA decode)
+    target_obj: [B, H, W]        từ target_assigner.build_targets()
+    target_box: [B, H, W, 4]     (tx*, ty*, tw*, th*) - đã encode sẵn
+    target_cls: [B, H, W]        class index (long)
+
+Trả về:
+    total_loss, và 3 loss thành phần để theo dõi riêng khi train.
 """
 
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
 
-def detection_loss(raw_pred, obj_mask, box_target, cls_target,
-                    lambda_box=5.0, lambda_obj=1.0, lambda_cls=1.0):
+class DetectionLoss(nn.Module):
+    def __init__(self, lambda_box=5.0, lambda_obj=1.0, lambda_cls=1.0):
+        super().__init__()
+
+        self.lambda_box = lambda_box
+        self.lambda_obj = lambda_obj
+        self.lambda_cls = lambda_cls
+
+        # reduction="sum" vì ta sẽ tự chia số lượng positive cell sau,
+        # để loss không phụ thuộc batch size / số cell một cách khó kiểm soát
+        self.box_loss_fn = nn.SmoothL1Loss(reduction="sum")
+        self.obj_loss_fn = nn.BCEWithLogitsLoss(reduction="sum")
+        # cls dùng reduction="sum" tương tự, chia số positive cell thủ công bên dưới
+        self.cls_loss_fn = nn.CrossEntropyLoss(reduction="sum")
+
+    def forward(self, raw_pred, target_obj, target_box, target_cls):
+        B, ch, H, W = raw_pred.shape
+        num_classes = ch - 5
+
+        # Đưa channel về cuối, giống hệt cách làm trong decoder.py
+        # để tách tx,ty,tw,th,obj,cls một cách nhất quán với phần decode.
+        pred = raw_pred.permute(0, 2, 3, 1)  # [B, H, W, 5+C]
+
+        pred_box_raw = pred[..., 0:4]   # [B,H,W,4]  = (tx,ty,tw,th) RAW, chưa sigmoid/exp
+        pred_obj_raw = pred[..., 4]     # [B,H,W]    RAW, chưa sigmoid
+        pred_cls_raw = pred[..., 5:]    # [B,H,W,C]  RAW logits, chưa softmax
+
+        # ------------------------------------------------------------
+        # MASK: xác định vị trí positive (có object) trong toàn bộ B*H*W cell
+        # ------------------------------------------------------------
+        positive_mask = target_obj == 1.0   # [B,H,W] kiểu bool
+
+        num_positive = positive_mask.sum().item()
+        # Nếu ảnh không có object nào (num_positive=0), tránh chia 0 ở dưới
+        num_positive = max(num_positive, 1)
+
+        # ==============================================================
+        # 1. BOX LOSS - chỉ tính tại positive cell
+        # ==============================================================
+        # positive_mask có shape [B,H,W], còn pred_box_raw/target_box có
+        # thêm chiều cuối = 4 -> dùng positive_mask để "lọc" ra đúng các
+        # cell positive, kết quả là tensor phẳng [num_positive, 4]
+        pred_box_pos = pred_box_raw[positive_mask]     # [num_positive, 4]
+        target_box_pos = target_box[positive_mask]     # [num_positive, 4]
+
+        loss_box = self.box_loss_fn(pred_box_pos, target_box_pos) / num_positive
+
+        # ==============================================================
+        # 2. OBJECTNESS LOSS - tính ở TOÀN BỘ cell (positive + negative)
+        # ==============================================================
+        # BCEWithLogitsLoss cần target cùng shape, cùng dtype float
+        loss_obj = self.obj_loss_fn(pred_obj_raw, target_obj) / (B * H * W)
+
+        # ==============================================================
+        # 3. CLASSIFICATION LOSS - chỉ tính tại positive cell
+        # ==============================================================
+        pred_cls_pos = pred_cls_raw[positive_mask]      # [num_positive, C]
+        target_cls_pos = target_cls[positive_mask]      # [num_positive]
+
+        # CrossEntropyLoss cần ít nhất 1 sample, nếu không có positive cell
+        # nào thì loss_cls = 0 (không có gì để học ở batch này)
+        if num_positive > 0 and pred_cls_pos.shape[0] > 0:
+            loss_cls = self.cls_loss_fn(pred_cls_pos, target_cls_pos) / num_positive
+        else:
+            loss_cls = torch.tensor(0.0, device=raw_pred.device)
+
+        # ==============================================================
+        # TỔNG HỢP
+        # ==============================================================
+        total_loss = (
+            self.lambda_box * loss_box
+            + self.lambda_obj * loss_obj
+            + self.lambda_cls * loss_cls
+        )
+
+        return total_loss, loss_box, loss_obj, loss_cls
+
+
+def compute_multiscale_loss(preds, gt_boxes, gt_classes, num_classes, loss_fn):
     """
-    Tham số đầu vào:
-    ----------------
-    raw_pred:   [B, 5+C, H, W]
-                Output THÔ (chưa decode) đi thẳng ra từ Detection Head.
-                5 kênh đầu = tx, ty, tw, th, objectness (chưa qua sigmoid/exp).
-                C kênh sau = logits class (chưa qua softmax).
+    Mở rộng của DetectionLoss: tính loss cho CẢ 3 SCALE (P3, P4, P5) cùng lúc.
 
-    obj_mask:   [B, H, W]
-                Bản đồ đánh dấu ô nào có object, do target_assigner.py tạo ra.
-                Giá trị 1 = ô này CÓ object (positive), 0 = ô này KHÔNG có (negative).
+    DetectionLoss ở trên chỉ biết tính loss cho 1 scale. Hàm này gọi lại
+    DetectionLoss 3 lần (1 lần/scale) rồi cộng kết quả - không định nghĩa
+    công thức toán mới, chỉ điều phối.
 
-    box_target: [B, 4, H, W]
-                Giá trị box đã encode (tx,ty,tw,th) tại các ô positive.
-                Tại ô negative, giá trị ở đây là rác (không được dùng tới,
-                vì ta sẽ lọc bằng obj_mask trước khi tính loss).
+    Input:
+        preds: tuple (pred_p3, pred_p4, pred_p5) - output từ detector.py
+        gt_boxes, gt_classes: xem target_assigner.build_targets_multiscale
+        num_classes: int
+        loss_fn: instance của DetectionLoss (tạo 1 lần, tái sử dụng)
 
-    cls_target: [B, H, W]  (kiểu long/int)
-                Class index đúng (0=person, 1=helmet, 2=vest...) tại ô positive.
-                Tại ô negative, giá trị cũng là rác, không dùng tới.
-
-    lambda_box/obj/cls:
-                Hệ số trọng số cho từng loss, để cân bằng độ lớn giữa 3 loss
-                (nếu không có hệ số, loss nào có giá trị tự nhiên lớn hơn sẽ
-                "lấn át" gradient của loss còn lại).
-
-    Trả về:
-    -------
-    total, box_loss, obj_loss, cls_loss (để log riêng từng thành phần khi train)
+    Output:
+        total_loss: tổng loss của cả 3 scale (dùng để .backward())
+        loss_dict: dict chứa từng thành phần loss của từng scale, để debug
     """
+    from target_assigner import build_targets_multiscale
 
-    # ---------------------------------------------------------
-    # BƯỚC 1: TÁCH raw_pred THÀNH 3 NHÓM Ý NGHĨA RIÊNG
-    # ---------------------------------------------------------
-    # raw_pred có 5+C kênh gộp chung, ta cắt theo chiều channel (dim=1)
-    # để lấy ra đúng phần nào là box, phần nào là objectness, phần nào là class.
-    pred_box = raw_pred[:, 0:4, :, :]   # 4 kênh đầu: tx,ty,tw,th (còn thô, CHƯA decode)
-    pred_obj = raw_pred[:, 4, :, :]     # kênh thứ 5: objectness logit (1 số / ô)
-    pred_cls = raw_pred[:, 5:, :, :]    # các kênh còn lại: class logits (C số / ô)
+    pred_p3, pred_p4, pred_p5 = preds
+    targets = build_targets_multiscale(gt_boxes, gt_classes, num_classes)
 
-    # ---------------------------------------------------------
-    # BƯỚC 2: XÁC ĐỊNH Ô NÀO LÀ POSITIVE (có object)
-    # ---------------------------------------------------------
-    pos_mask = obj_mask.bool()          # đổi 0/1 (float) -> True/False để dùng làm mask lọc
-    num_pos = pos_mask.sum().clamp(min=1)
-    # num_pos = tổng số ô positive trong CẢ BATCH.
-    # clamp(min=1): phòng trường hợp batch này không có object nào (num_pos=0)
-    # thì tránh lỗi chia cho 0 ở bước chuẩn hóa bên dưới.
+    preds_per_scale = [pred_p3, pred_p4, pred_p5]
+    scale_names = ["P3", "P4", "P5"]
 
-    # ---------------------------------------------------------
-    # BƯỚC 3: BOX LOSS — CHỈ TÍNH TẠI Ô POSITIVE
-    # ---------------------------------------------------------
-    # Vì sao chỉ tính tại positive: ô negative không có ground-truth box thật,
-    # nên box_target ở đó là rác -> nếu tính loss cả ở đó là ép model học sai.
+    total_loss = 0.0
+    loss_dict = {}
 
-    # pos_mask hiện có shape [B,H,W], còn pred_box có shape [B,4,H,W]
-    # -> phải "nhân bản" mask ra 4 kênh để chỉ đúng vị trí cần lấy trên cả 4 kênh box.
-    pos_mask_4 = pos_mask.unsqueeze(1).expand_as(pred_box)  # [B,1,H,W] -> [B,4,H,W]
+    for i in range(3):
+        raw_pred = preds_per_scale[i]
+        target_obj, target_box, target_cls = targets[i]
 
-    # pred_box[pos_mask_4] : lấy phẳng ra 1 vector 1-D, chỉ gồm giá trị
-    # tại các vị trí positive (không quan tâm chúng nằm rải rác ở đâu trên lưới 20x20).
-    box_loss = F.smooth_l1_loss(
-        pred_box[pos_mask_4],
-        box_target[pos_mask_4],
-        reduction='sum'      # cộng dồn lỗi của tất cả giá trị lấy được
-    ) / num_pos              # chia cho SỐ Ô positive (không phải tổng số ô)
-    # -> lý do chia cho num_pos: nếu không, ảnh có nhiều object sẽ tự nhiên
-    # có box_loss lớn hơn ảnh ít object, dù model dự đoán tốt/tệ như nhau.
+        target_obj = target_obj.to(raw_pred.device)
+        target_box = target_box.to(raw_pred.device)
+        target_cls = target_cls.to(raw_pred.device)
 
-    # ---------------------------------------------------------
-    # BƯỚC 4: OBJECTNESS LOSS — TÍNH TRÊN TOÀN BỘ LƯỚI (cả positive lẫn negative)
-    # ---------------------------------------------------------
-    # Vì sao KHÔNG lọc mask ở đây: objectness cần học phân biệt
-    # "đây là object" (target=1) VS "đây là background" (target=0).
-    # Nếu chỉ tính tại positive, model sẽ không bao giờ học được cách
-    # nhận diện background -> lúc suy luận sẽ báo object khắp mọi nơi.
-    obj_loss = F.binary_cross_entropy_with_logits(
-        pred_obj,            # logit thô, HÀM NÀY TỰ áp sigmoid bên trong, không cần làm tay
-        obj_mask.float(),    # target: 1 = có object, 0 = không có
-        reduction='mean'     # trung bình trên toàn bộ B*H*W ô
+        loss, l_box, l_obj, l_cls = loss_fn(raw_pred, target_obj, target_box, target_cls)
+        total_loss = total_loss + loss
+
+        name = scale_names[i]
+        loss_dict[f"loss_{name}"] = loss.item()
+        loss_dict[f"loss_{name}_box"] = l_box.item()
+        loss_dict[f"loss_{name}_obj"] = l_obj.item()
+        loss_dict[f"loss_{name}_cls"] = l_cls.item()
+
+    loss_dict["total_loss"] = total_loss.item()
+    return total_loss, loss_dict
+
+
+if __name__ == "__main__":
+    # ---- TEST 1: DetectionLoss cho 1 scale riêng lẻ (giữ nguyên như cũ) ----
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from target_assigner import build_targets_multiscale
+
+    num_classes = 3
+    gt_boxes = [torch.tensor([[210.0, 150.0, 270.0, 210.0]])]  # w=h=60 -> P5
+    gt_classes = [torch.tensor([0])]
+
+    targets = build_targets_multiscale(gt_boxes, gt_classes, num_classes)
+    target_obj, target_box, target_cls = targets[2]  # lấy P5 để test 1-scale
+
+    print("target_obj shape (P5):", target_obj.shape)
+
+    B, C, H, W = 1, num_classes, 20, 20
+    raw_pred_bad = torch.randn(B, 5 + C, H, W)
+
+    loss_fn = DetectionLoss()
+    total, l_box, l_obj, l_cls = loss_fn(raw_pred_bad, target_obj, target_box, target_cls)
+
+    print("\n--- Loss 1 scale (P5) với prediction NGẪU NHIÊN ---")
+    print(f"total_loss = {total.item():.4f}")
+
+    # ---- TEST 2: compute_multiscale_loss cho CẢ 3 SCALE cùng lúc ----
+    from detector import MiniPPEDetector
+
+    model = MiniPPEDetector(num_classes=num_classes)
+    x = torch.randn(1, 3, 640, 640)
+    preds = model(x)
+
+    gt_boxes_multi = [
+        torch.tensor([
+            [100.0, 100.0, 130.0, 130.0],   # nhỏ -> P3
+            [300.0, 200.0, 380.0, 280.0],   # vừa -> P4
+            [50.0, 50.0, 250.0, 250.0],     # lớn -> P5
+        ])
+    ]
+    gt_classes_multi = [torch.tensor([1, 0, 0])]
+
+    total_loss, loss_dict = compute_multiscale_loss(
+        preds, gt_boxes_multi, gt_classes_multi, num_classes, loss_fn
     )
 
-    # ---------------------------------------------------------
-    # BƯỚC 5: CLASS LOSS — CHỈ TÍNH TẠI Ô POSITIVE
-    # ---------------------------------------------------------
-    # Vì sao chỉ tính tại positive: ô negative (background) không thuộc
-    # class nào cả (không phải person/helmet/vest) -> ép model phân loại
-    # class cho background là vô nghĩa và gây nhiễu loss.
-    if num_pos > 0:
-        # permute(0,2,3,1): đổi thứ tự chiều từ [B,C,H,W] -> [B,H,W,C]
-        # để C (số class) nằm ở chiều cuối -> khi lọc bằng pos_mask [B,H,W]
-        # kết quả tự động ra shape [num_pos, C], đúng định dạng CrossEntropyLoss cần.
-        pred_cls_pos = pred_cls.permute(0, 2, 3, 1)[pos_mask]   # [num_pos, C]
-        cls_target_pos = cls_target[pos_mask]                  # [num_pos]
+    print("\n--- Loss breakdown (3 scale) ---")
+    for k, v in loss_dict.items():
+        print(f"{k}: {v:.4f}")
 
-        cls_loss = F.cross_entropy(
-            pred_cls_pos,       # logits (CHƯA softmax — hàm này tự làm)
-            cls_target_pos,     # class index đúng, kiểu long
-            reduction='mean'
-        )
-    else:
-        # Không có object nào trong cả batch -> không có gì để tính class loss.
-        # Trả về 0 nhưng vẫn phải nằm đúng device (GPU/CPU) để không lỗi khi cộng tổng.
-        cls_loss = torch.tensor(0.0, device=raw_pred.device)
-
-    # ---------------------------------------------------------
-    # BƯỚC 6: CỘNG 3 LOSS THEO TRỌNG SỐ λ
-    # ---------------------------------------------------------
-    total = lambda_box * box_loss + lambda_obj * obj_loss + lambda_cls * cls_loss
-
-    # trả thêm .detach() cho 3 loss thành phần: để log/in ra theo dõi training
-    # mà KHÔNG kéo theo đồ thị gradient (tránh giữ bộ nhớ không cần thiết).
-    return total, box_loss.detach(), obj_loss.detach(), cls_loss.detach()
+    total_loss.backward()
+    print("\nbackward() chạy thành công.")
