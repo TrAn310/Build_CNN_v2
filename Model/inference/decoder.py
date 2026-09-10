@@ -1,99 +1,140 @@
 
 import torch
 
+
 def decode_predictions(raw_pred, stride, base_w, base_h):
     """
+    Decode cho 1 scale (giữ nguyên như cũ).
+
     Args:
-        raw_pred: tensor [B, 5+C, H, W] -- output tho tu Detection Head
-        stride:   bước nhảy, độ co
-        base_w:   float, kich thuoc co so cua box theo chieu rong
-        base_h:   float, kich thuoc co so cua box theo chieu cao
+        raw_pred: [B, 5+C, H, W]
+        stride:   int
+        base_w, base_h: float - kich thuoc anchor co so cua scale nay
 
     Returns:
-        boxes:       [B, H, W, 4]  (x1, y1, x2, y2) tren anh goc
-        objectness:  [B, H, W]     da qua sigmoid, trong khoang (0,1)
-        class_probs: [B, H, W, C]  da qua softmax
+        boxes:       [B, H, W, 4]
+        objectness:  [B, H, W]
+        class_probs: [B, H, W, C]
     """
     B, ch, H, W = raw_pred.shape
     num_classes = ch - 5
 
-    # Dua channel ve cuoi de de thao tac: [B, H, W, 5+C], đúng form của pytorch 
     pred = raw_pred.permute(0, 2, 3, 1)  # [B, H, W, 5+C]
 
-    tx = pred[..., 0]
-    ty = pred[..., 1]
-    tw = pred[..., 2]
-    th = pred[..., 3]
+    tx, ty, tw, th = pred[..., 0], pred[..., 1], pred[..., 2], pred[..., 3]
     t_obj = pred[..., 4]
-    t_cls = pred[..., 5:]  # [B, H, W, C]
+    t_cls = pred[..., 5:]
 
-    # ---- Tao luoi toa do grid (gx, gy) cho tung o ----
-    # gy: chi so hang (0..H-1), gx: chi so cot (0..W-1)
     grid_y, grid_x = torch.meshgrid(
         torch.arange(H, device=raw_pred.device),
         torch.arange(W, device=raw_pred.device),
         indexing="ij",
     )
-    grid_x = grid_x.float()  # [H, W]
-    grid_y = grid_y.float()  # [H, W]
+    grid_x = grid_x.float().unsqueeze(0)  # [1, H, W]
+    grid_y = grid_y.float().unsqueeze(0)  # [1, H, W]
 
-    # them chieu batch de broadcast: [1, H, W]
-    grid_x = grid_x.unsqueeze(0)
-    grid_y = grid_y.unsqueeze(0)
+    cx = (torch.sigmoid(tx) + grid_x) * stride
+    cy = (torch.sigmoid(ty) + grid_y) * stride
 
-    # ---- Decode tam box (cx, cy) ----
-    cx = (torch.sigmoid(tx) + grid_x) * stride  # [B, H, W]
-    cy = (torch.sigmoid(ty) + grid_y) * stride  # [B, H, W]
+    w = torch.exp(tw) * base_w
+    h = torch.exp(th) * base_h
 
-    # ---- Decode kich thuoc box (w, h) ----
-    w = torch.exp(tw) * base_w  # [B, H, W]
-    h = torch.exp(th) * base_h  # [B, H, W]
-
-    # ---- Tu (cx,cy,w,h) sang (x1,y1,x2,y2) ----
     x1 = cx - w / 2
     y1 = cy - h / 2
     x2 = cx + w / 2
     y2 = cy + h / 2
 
     boxes = torch.stack([x1, y1, x2, y2], dim=-1)  # [B, H, W, 4]
-
-    # ---- Objectness va class probability ----
     objectness = torch.sigmoid(t_obj)              # [B, H, W]
     class_probs = torch.softmax(t_cls, dim=-1)      # [B, H, W, C]
 
     return boxes, objectness, class_probs
 
 
+def decode_multi_scale(preds, strides, base_sizes):
+    """
+    Decode cho nhiều scale (P3, P4, P5, ...) va gop lai thanh 1 tap detection.
+
+    Args:
+        preds:      list/tuple cac raw_pred, vi du (pred_p3, pred_p4, pred_p5)
+                    moi cai [B, 5+C, H_i, W_i]
+        strides:    list cac stride tuong ung, vi du [8, 16, 32]
+        base_sizes: list cac (base_w, base_h) tuong ung cho tung scale,
+                    vi du [(32,32), (64,64), (128,128)]
+                    -> anchor co so khac nhau theo scale (scale nho decode vat nho,
+                       scale lon decode vat lon)
+
+    Returns:
+        boxes_all:       [B, N_total, 4]
+        objectness_all:  [B, N_total]
+        class_probs_all: [B, N_total, C]
+        N_total = sum(H_i * W_i) tren tat ca scale
+    """
+    assert len(preds) == len(strides) == len(base_sizes), \
+        "preds, strides, base_sizes phai cung so luong scale"
+
+    boxes_list, obj_list, cls_list = [], [], []
+
+    for raw_pred, stride, (base_w, base_h) in zip(preds, strides, base_sizes):
+        boxes, objectness, class_probs = decode_predictions(
+            raw_pred, stride=stride, base_w=base_w, base_h=base_h
+        )
+
+        B, H, W, _ = boxes.shape
+        C = class_probs.shape[-1]
+
+        # Flatten [B, H, W, ...] -> [B, H*W, ...] de co the concat giua cac scale
+        # (vi H, W khac nhau giua cac scale nen khong the stack truc tiep)
+        boxes_list.append(boxes.reshape(B, H * W, 4))
+        obj_list.append(objectness.reshape(B, H * W))
+        cls_list.append(class_probs.reshape(B, H * W, C))
+
+    boxes_all = torch.cat(boxes_list, dim=1)        # [B, N_total, 4]
+    objectness_all = torch.cat(obj_list, dim=1)      # [B, N_total]
+    class_probs_all = torch.cat(cls_list, dim=1)     # [B, N_total, C]
+
+    return boxes_all, objectness_all, class_probs_all
+
+
 if __name__ == "__main__":
-    # ---- TEST DECODER BANG PREDICTION GIA (chua can model that) ----
-    B, C, H, W = 1, 3, 20, 20
-    stride = 32
-    base_w = base_h = 32
+    # ---- TEST MULTI-SCALE DECODE ----
+    B, C = 1, 3
 
-    # Gia lap raw output tu Detection Head: [B, 5+C, H, W]
-    raw_pred = torch.zeros(B, 5 + C, H, W)
+    # Gia lap 3 raw prediction tu detector.py (giong shape that)
+    pred_p3 = torch.zeros(B, 5 + C, 80, 80)  # stride 8
+    pred_p4 = torch.zeros(B, 5 + C, 40, 40)  # stride 16
+    pred_p5 = torch.zeros(B, 5 + C, 20, 20)  # stride 32
 
-    # Dat gia tri gia cho 1 o cu the: gy=5, gx=7 (giong Bai 2)
+    # Gia lap 1 detection o P5 (giong test truoc, gy=5, gx=7)
     gy, gx = 5, 7
-    raw_pred[0, 0, gy, gx] = 0.2   # tx
-    raw_pred[0, 1, gy, gx] = -0.5  # ty
-    raw_pred[0, 2, gy, gx] = 0.1   # tw
-    raw_pred[0, 3, gy, gx] = -0.3  # th
-    raw_pred[0, 4, gy, gx] = 5.0   # objectness (raw, truoc sigmoid -> gan 1)
-    raw_pred[0, 5, gy, gx] = 5.0   # class Person score cao
+    pred_p5[0, 0, gy, gx] = 0.2   # tx
+    pred_p5[0, 1, gy, gx] = -0.5  # ty
+    pred_p5[0, 2, gy, gx] = 0.1   # tw
+    pred_p5[0, 3, gy, gx] = -0.3  # th
+    pred_p5[0, 4, gy, gx] = 5.0   # objectness
+    pred_p5[0, 5, gy, gx] = 5.0   # class Person
 
-    boxes, objectness, class_probs = decode_predictions(
-        raw_pred, stride=stride, base_w=base_w, base_h=base_h
+    preds = (pred_p3, pred_p4, pred_p5)
+    strides = [8, 16, 32]
+    # Anchor co so khac nhau theo tung scale (scale nho -> vat nho, scale lon -> vat lon)
+    base_sizes = [(16, 16), (32, 32), (128, 128)]
+
+    boxes_all, objectness_all, class_probs_all = decode_multi_scale(
+        preds, strides, base_sizes
     )
 
-    print("Boxes shape      :", boxes.shape)
-    print("Objectness shape :", objectness.shape)
-    print("Class probs shape:", class_probs.shape)
+    print("Boxes all shape      :", boxes_all.shape)        # [1, 8400, 4]
+    print("Objectness all shape :", objectness_all.shape)    # [1, 8400]
+    print("Class probs all shape:", class_probs_all.shape)   # [1, 8400, 3]
 
-    print("\n--- Ket qua tai o (gy=5, gx=7) ---")
-    print("Box (x1,y1,x2,y2):", boxes[0, gy, gx].tolist())
-    print("Objectness       :", objectness[0, gy, gx].item())
-    print("Class probs      :", class_probs[0, gy, gx].tolist())
+    # Tinh vi tri flatten cua detection gia trong P5
+    # (de kiem tra ket qua co dung khong)
+    offset_p3 = 80 * 80
+    offset_p4 = 40 * 40
+    idx_in_p5 = gy * 20 + gx
+    flat_idx = offset_p3 + offset_p4 + idx_in_p5
 
-    print("\n--- Doi chieu voi tinh tay o Bai 3 ---")
-    print("Expected box xap xi: [223.9, 160.4, 259.3, 184.1]")
+    print("\n--- Ket qua tai vi tri flatten cua (P5, gy=5, gx=7) ---")
+    print("Box (x1,y1,x2,y2):", boxes_all[0, flat_idx].tolist())
+    print("Objectness       :", objectness_all[0, flat_idx].item())
+    print("Class probs      :", class_probs_all[0, flat_idx].tolist())
