@@ -149,7 +149,15 @@ if __name__ == "__main__":
     # ---- TEST 1: DetectionLoss cho 1 scale riêng lẻ (giữ nguyên như cũ) ----
     import sys
     import os
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    sys.path.append(CURRENT_DIR)  # để tìm target_assigner.py (cùng thư mục training/)
+
+    # detector.py nằm ở Model/src/, còn file này ở Model/training/
+    # -> phải thêm đường dẫn tới src/ thì Python mới "thấy" được detector.py
+    SRC_DIR = os.path.normpath(os.path.join(CURRENT_DIR, "..", "src"))
+    sys.path.append(SRC_DIR)
+
     from target_assigner import build_targets_multiscale
 
     num_classes = 3
