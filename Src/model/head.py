@@ -1,11 +1,13 @@
 """
 head.py
 
-Detection Head cho Version 0.1 (single-scale).
+Detection Head -- 1 head DÙNG CHUNG CHO MỌI SCALE trong kiến trúc
+multi-scale (Version 0.2). MiniPPEDetector (detector.py) tự tạo 3
+INSTANCE RIÊNG của class này (head_p3, head_p4, head_p5), mỗi instance
+nhận feature map đã qua Neck (cùng số channel = neck_out_channels).
 
-Nhiệm vụ: nhận feature map từ backbone, dùng Conv2d kernel=1
-để biến đổi số channel từ C_in -> (5 + num_classes),
-Giữ nguyên kích thước không gian H, W.
+Nhiệm vụ: dùng Conv2d kernel=1 để biến đổi số channel từ C_in ->
+(5 + num_classes), giữ nguyên kích thước không gian H, W.
 """
 
 import torch
@@ -42,16 +44,28 @@ class DetectionHead(nn.Module):
 
 
 if __name__ == "__main__":
-    # ---- TEST RIÊNG HEAD TRƯỚC KHI GHÉP VÀO DETECTOR ----
+    # ---- TEST HEAD DUNG DUNG CACH detector.py THUC SU SU DUNG ----
+    # Neck luon xuat ra out_channels=256 cho ca 3 scale (xem neck.py),
+    # nen head nhan in_channels=256 -- KHONG PHAI 512 nhu output tho
+    # cua Backbone P5. detector.py tao 3 INSTANCE rieng, moi instance
+    # dung cho 1 scale (H,W khac nhau, nhung cung in_channels=256).
     num_classes = 3  # Person, Helmet, Vest
-    head = DetectionHead(in_channels=512, num_classes=num_classes)
+    neck_out_channels = 256
 
-    # Giả lập P5 output từ backbone
-    p5 = torch.randn(2, 512, 20, 20)
-    out = head(p5)
+    head_p3 = DetectionHead(in_channels=neck_out_channels, num_classes=num_classes)
+    head_p4 = DetectionHead(in_channels=neck_out_channels, num_classes=num_classes)
+    head_p5 = DetectionHead(in_channels=neck_out_channels, num_classes=num_classes)
 
-    print("Input shape (P5):", p5.shape)
-    print("Output shape    :", out.shape)
+    # Gia lap output cua Neck (f3, f4, f5) -- xem lai neck.py
+    f3 = torch.randn(2, neck_out_channels, 80, 80)
+    f4 = torch.randn(2, neck_out_channels, 40, 40)
+    f5 = torch.randn(2, neck_out_channels, 20, 20)
 
-    # Expected: Output shape: torch.Size([2, 8, 20, 20])
-    print("Expected out_channels =", 5 + num_classes)
+    pred_p3 = head_p3(f3)
+    pred_p4 = head_p4(f4)
+    pred_p5 = head_p5(f5)
+
+    print("Pred P3 shape:", pred_p3.shape)  # Expected: [2, 8, 80, 80]
+    print("Pred P4 shape:", pred_p4.shape)  # Expected: [2, 8, 40, 40]
+    print("Pred P5 shape:", pred_p5.shape)  # Expected: [2, 8, 20, 20]
+    print("\nExpected out_channels (moi scale) =", 5 + num_classes)
