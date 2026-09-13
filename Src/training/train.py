@@ -40,7 +40,7 @@ _SRC_DIR = os.path.dirname(_CURRENT_DIR)
 # trong detector.py), nen phai them TUNG THU MUC CON chua module can dung --
 # them mai "Src/" thoi la KHONG DU, vi ben trong detector.py van con
 # "from Backbone import Backbone" tro toi Src/models/Backbone.py.
-for _sub in ("models", "dataset", "inference", "evaluation", "utils"):
+for _sub in ("model", "dataset", "inference", "evaluation", "utils"):
     _path = os.path.join(_SRC_DIR, _sub)
     if _path not in sys.path:
         sys.path.append(_path)
