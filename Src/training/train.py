@@ -60,6 +60,24 @@ from torch.optim import Adam
 
 from detector import MiniPPEDetector
 from losses import DetectionLoss, compute_multiscale_loss
+from config_utils import load_dataset_config
+
+
+def save_checkpoint(model, num_classes, class_names, save_path, img_size=640):
+    """
+    Luu checkpoint kem THEO CA METADATA (num_classes, class_names, img_size),
+    khong chi trong so thuan tuy. Day la diem mau chot de predict.py sau
+    nay KHONG BAO GIO can sua code cung du doi dataset/so class khac nhau -
+    predict.py se tu doc lai dung thong tin nay tu file checkpoint.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "num_classes": num_classes,
+        "class_names": class_names,
+        "img_size": img_size,
+    }, save_path)
+    print(f"Da luu checkpoint: {save_path}")
 
 
 def train_one_step(model, images, gt_boxes, gt_classes, loss_fn, optimizer):
@@ -104,7 +122,17 @@ if __name__ == "__main__":
     # ==================================================================
     torch.manual_seed(0)
 
-    num_classes = 3   # Person, Helmet, Vest
+    # ---- Lay num_classes, class_names DONG tu data.yaml (khong hard-code) ----
+    # Neu chua co data.yaml dung duong dan, fallback ve 3 class mac dinh de
+    # overfit test van chay duoc doc lap, khong phu thuoc dataset that.
+    _yaml_path = os.path.normpath(os.path.join(_SRC_DIR, "Data", "data.yaml"))
+    try:
+        num_classes, class_names = load_dataset_config(_yaml_path)
+    except FileNotFoundError:
+        print(f"Khong tim thay {_yaml_path}, dung fallback 3 class mac dinh.")
+        num_classes = 3
+        class_names = ["Person", "Helmet", "Vest"]
+
     model = MiniPPEDetector(num_classes=num_classes)
     optimizer = Adam(model.parameters(), lr=1e-3)
     loss_fn = DetectionLoss()
@@ -142,3 +170,21 @@ if __name__ == "__main__":
     print("\nExpected: total_loss giam manh (ly tuong ve gan 0). Neu total_loss")
     print("KHONG giam hoac dung yen tu step 1 -> co bug o build_targets/loss/")
     print("backward -- PHAI sua truoc khi dung dataset that (dung do loi cho du lieu).")
+
+    # ---- LUU CHECKPOINT ----
+    # outputs/checkpoints/ nam o CAP GOC project (ngang hang voi Src/),
+    # dung PHAN 32 trong Prompt goc.
+    _PROJECT_ROOT = os.path.dirname(_SRC_DIR)
+    _CKPT_DIR = os.path.join(_PROJECT_ROOT, "outputs", "checkpoints")
+
+    save_checkpoint(
+        model, num_classes, class_names,
+        save_path=os.path.join(_CKPT_DIR, "last_model.pth"),
+    )
+    # Overfit test khong co validation that nen tam thoi luu ca best = last.
+    # Khi viet training loop that (dataset that + validation mAP), best_model.pth
+    # se chi duoc ghi de khi validation mAP cai thien - chua lam trong file nay.
+    save_checkpoint(
+        model, num_classes, class_names,
+        save_path=os.path.join(_CKPT_DIR, "best_model.pth"),
+    )
