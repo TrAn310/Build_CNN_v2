@@ -160,6 +160,77 @@ def resolve_dataset_paths(yaml_path):
     }
 
 
+def resolve_dataset_paths_from_folder(dataset_dir, val_folder_candidates=("valid", "val")):
+    """
+    Cach DON GIAN NHAT, KHONG can sua gi trong data.yaml: chi truyen
+    THU MUC GOC cua dataset (dung dinh dang Roboflow/YOLO pho bien:
+    co san train/, valid/ (hoac val/), va data.yaml o ngay ben trong).
+
+    Khac voi resolve_dataset_paths() (doc key "train"/"val" trong
+    data.yaml, doi hoi data.yaml phai co "path" hoac duong dan dung
+    quy uoc), ham nay CHI dung data.yaml de lay nc/names -- con 4
+    duong dan anh/label thi suy thang tu chinh dataset_dir theo quy
+    uoc thu muc CO SAN (train/images, valid/images), KHONG doc/khong
+    quan tam key "train"/"val" ben trong data.yaml co dung hay khong.
+
+    Cau truc ky vong:
+        dataset_dir/
+        ├── data.yaml          (chi can co nc + names, train/val bi bo qua)
+        ├── train/
+        │   ├── images/
+        │   └── labels/
+        └── valid/  (hoac val/)
+            ├── images/
+            └── labels/
+
+    Args:
+        dataset_dir: thu muc goc dataset (vi du "Data/")
+        val_folder_candidates: thu lan luot cac ten thu muc valid co
+            the co (Roboflow dat ten "valid", nhung 1 so dataset khac
+            dat ten "val")
+
+    Output: dict giong het resolve_dataset_paths() -- num_classes,
+        class_names, train_img_dir, train_label_dir, val_img_dir,
+        val_label_dir (deu la duong dan ABSOLUTE)
+    """
+    dataset_dir = os.path.abspath(dataset_dir)
+
+    yaml_path = os.path.join(dataset_dir, "data.yaml")
+    if not os.path.isfile(yaml_path):
+        raise FileNotFoundError(
+            f"Khong tim thay data.yaml trong thu muc dataset: {yaml_path}\n"
+            f"(--dataset-dir phai la thu muc GOC chua san data.yaml, vi du 'Data/')"
+        )
+
+    num_classes, class_names = load_dataset_config(yaml_path)
+
+    train_img_dir = os.path.join(dataset_dir, "train", "images")
+
+    val_img_dir = None
+    for _name in val_folder_candidates:
+        _candidate = os.path.join(dataset_dir, _name, "images")
+        if os.path.isdir(_candidate):
+            val_img_dir = _candidate
+            break
+    if val_img_dir is None:
+        # Khong thay dir nao ton tai -- van tra ve candidate DAU TIEN de
+        # thong bao loi o ben ngoai (run_train.py) chi ro dung duong dan
+        # nao dang bi thieu, thay vi bao loi mo ho o day.
+        val_img_dir = os.path.join(dataset_dir, val_folder_candidates[0], "images")
+
+    train_label_dir = os.path.join(dataset_dir, "train", "labels")
+    val_label_dir = os.path.join(os.path.dirname(val_img_dir), "labels")
+
+    return {
+        "num_classes": num_classes,
+        "class_names": class_names,
+        "train_img_dir": train_img_dir,
+        "train_label_dir": train_label_dir,
+        "val_img_dir": val_img_dir,
+        "val_label_dir": val_label_dir,
+    }
+
+
 if __name__ == "__main__":
     # ---- TEST bằng file data.yaml THẬT của dataset ----
 
