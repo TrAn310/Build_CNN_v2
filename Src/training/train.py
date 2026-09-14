@@ -56,6 +56,7 @@ _SUBFOLDERS = [
     "dataset",
     "inference",
     "evaluation",
+    "Utils",
 ]
 
 for _sub in _SUBFOLDERS:
