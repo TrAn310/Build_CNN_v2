@@ -17,7 +17,7 @@ _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Src/
 # vi du: python run_train.py --epochs 30 (dung DATASET_DIR mac dinh,
 # nhung doi so epoch thanh 30).
 # ======================================================================
-DATASET_DIR = r"F:\NCKH_2026\lapTrinhPy\CNN_v2\Src\Data"  # <-- SUA DUONG DAN NAY
+DATASET_DIR = r"D:\NCKH\CNN_ver2\Build_CNN_v2\Src\Data"  # <-- SUA DUONG DAN NAY
 EPOCHS = 100
 BATCH_SIZE = 16
 IMG_SIZE = 640

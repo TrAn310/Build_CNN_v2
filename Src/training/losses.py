@@ -65,10 +65,25 @@ class DetectionLoss(nn.Module):
         loss_box = self.box_loss_fn(pred_box_pos, target_box_pos) / num_positive
 
         # ==============================================================
-        # 2. OBJECTNESS LOSS - tính ở TOÀN BỘ cell (positive + negative)
+        # 2. OBJECTNESS LOSS - Cân bằng tỷ lệ (Fix Loss Drowning)
         # ==============================================================
-        # BCEWithLogitsLoss cần target cùng shape, cùng dtype float
-        loss_obj = self.obj_loss_fn(pred_obj_raw, target_obj) / (B * H * W)
+        import torch.nn.functional as F
+        
+        # Tính xem số lượng ô nền (Negative) đang áp đảo bao nhiêu lần
+        num_negative = (B * H * W) - num_positive
+        
+        # Tạo trọng số để "bơm" giá trị cho Positive. 
+        # Cắt ngọn (min) ở mức 100.0 để tránh gradient phát nổ nếu ảnh quá trống.
+        weight_ratio = min(num_negative / num_positive, 100.0)
+        pos_weight = torch.tensor([weight_ratio], device=raw_pred.device)
+        
+        # Sử dụng F.binary_cross_entropy_with_logits hỗ trợ truyền pos_weight
+        loss_obj = F.binary_cross_entropy_with_logits(
+            pred_obj_raw, 
+            target_obj, 
+            reduction="mean", 
+            pos_weight=pos_weight
+        )
 
         # ==============================================================
         # 3. CLASSIFICATION LOSS - chỉ tính tại positive cell
