@@ -1,36 +1,3 @@
-"""
-run_train.py
-
-Entry point kieu YOLO. 2 CACH DUNG:
-
-  1) DON GIAN NHAT (khuyen dung, KHONG can dong vao data.yaml):
-     chi truyen THU MUC GOC dataset (co san train/, valid/, data.yaml
-     dung dinh dang Roboflow) qua --dataset-dir:
-
-         python run_train.py --dataset-dir Data --epochs 100 --batch 16
-
-     Code se TU SUY RA train/images, train/labels, valid/images,
-     valid/labels tu chinh thu muc do, KHONG dong cham gi den noi
-     dung file data.yaml (chi doc rieng nc/names trong do).
-
-  2) NANG CAO (khi dataset khong theo dung quy uoc train/valid+images,
-     hoac muon kiem soat duong dan chi tiet qua chinh data.yaml):
-     truyen thang file data.yaml chuan YOLO (co day du path/train/val)
-     qua --data:
-
-         python run_train.py --data Data/data.yaml --epochs 100 --batch 16
-
-     Xem config_utils.resolve_dataset_paths() de biet dinh dang
-     data.yaml can co cho cach nay.
-
-Chi can dung 1 trong 2 (--dataset-dir HOAC --data). Neu khong truyen
-gi ca, mac dinh dung --dataset-dir = Src/Data (dung setup pho bien
-nhat: dataset Roboflow giai nen thang vao Src/Data/).
-
-File nay CHI la 1 LOP VO CLI: suy ra 4 duong dan anh/label (train +
-valid) -> goi lai run_training() trong training/train.py. KHONG dinh
-nghia lai logic training o day (viet 1 lan, dung lai).
-"""
 
 import argparse
 import os

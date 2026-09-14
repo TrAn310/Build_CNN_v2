@@ -32,7 +32,8 @@ CAU TRUC THU MUC THAT:
     ├── inference/     (decoder.py, postprocess.py)
     ├── model/         (Backbone.py, block.py, detector.py, head.py, neck.py)
     │   └── utils/     (config_utils.py)
-    └── training/      (losses.py, target_assigner.py, train.py)  <- file nay o day
+    ├── training/      (losses.py, target_assigner.py, train.py)  <- file nay o day
+    └── Utils/         (Metrics.py, Visualization.py)
 
     train.py va cac thu muc kia la ANH EM (cung nam trong Src/).
     Python KHONG tu tim module o thu muc anh em, nen phai tu them
@@ -56,20 +57,13 @@ _SUBFOLDERS = [
     "dataset",
     "inference",
     "evaluation",
-    "Utils",
+    "Utils",   # Metrics.py, Visualization.py nam o day (Src/Utils/)
 ]
 
 for _sub in _SUBFOLDERS:
     _path = os.path.normpath(os.path.join(_SRC_DIR, _sub))
     if _path not in sys.path:
         sys.path.append(_path)
-
-# Metrics.py nam CUNG thu muc training/ voi chinh train.py. Khi chay
-# "python train.py" truc tiep, Python tu them thu muc chua script vao
-# sys.path -- nhung de an toan (vd khi train.py bi import tu noi khac),
-# ta van tu them ro rang _CURRENT_DIR vao day.
-if _CURRENT_DIR not in sys.path:
-    sys.path.append(_CURRENT_DIR)
 
 import argparse
 
@@ -139,7 +133,7 @@ def train_one_step(model, images, gt_boxes, gt_classes, loss_fn, optimizer):
     return loss_dict
 
 
-def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
+def train_one_epoch(model, train_loader, loss_fn, optimizer, device, log_every=10):
     """
     Chay 1 EPOCH train that su (nhieu batch, tu DataLoader that -- khac
     voi overfit test chi lap lai DUNG 1 anh gia 200 lan).
@@ -147,14 +141,23 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     Chi la vong lap goi lai train_one_step() cho tung batch + cong don
     loss bang AverageMeter -- KHONG dinh nghia logic train moi.
 
+    In tien do MOI log_every batch (kem s/batch + ETA con lai cua epoch)
+    -- de tren man hinh LUON CO gi do chay, tranh nhin giong bi "dung
+    hinh" khi dataset lon / chay tren CPU (moi epoch co the mat vai
+    chuc phut, ma neu khong in gi ca thi de tuong nham la treo may).
+
     Returns:
         train_loss: float, trung binh total_loss CA EPOCH (co trong so
             theo batch_size, dung AverageMeter.update(..., n=batch_size))
     """
+    import time
+
     model.train()
     meter = AverageMeter()
+    num_batches = len(train_loader)
+    start_time = time.time()
 
-    for images, gt_boxes, gt_classes in train_loader:
+    for batch_idx, (images, gt_boxes, gt_classes) in enumerate(train_loader, start=1):
         images = images.to(device)
         gt_boxes = [b.to(device) for b in gt_boxes]
         gt_classes = [c.to(device) for c in gt_classes]
@@ -162,11 +165,23 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
         loss_dict = train_one_step(model, images, gt_boxes, gt_classes, loss_fn, optimizer)
         meter.update(loss_dict["total_loss"], n=images.shape[0])
 
+        if batch_idx == 1 or batch_idx % log_every == 0 or batch_idx == num_batches:
+            elapsed = time.time() - start_time
+            sec_per_batch = elapsed / batch_idx
+            eta_sec = sec_per_batch * (num_batches - batch_idx)
+            print(
+                f"  [train] batch {batch_idx:4d}/{num_batches} | "
+                f"loss={loss_dict['total_loss']:.4f} | "
+                f"{sec_per_batch:.2f}s/batch | ETA epoch nay: {eta_sec/60:.1f} phut",
+                flush=True,
+            )
+
     return meter.avg
 
 
 def validate(model, val_loader, num_classes, loss_fn, device,
-             conf_threshold=0.3, nms_iou_threshold=0.5, map_iou_threshold=0.5):
+             conf_threshold=0.3, nms_iou_threshold=0.5, map_iou_threshold=0.5,
+             log_every=10):
     """
     Validation DAY DU cho 1 epoch -- day la phan MOI cua Buoc 2, khac
     han train_one_epoch():
@@ -181,6 +196,11 @@ def validate(model, val_loader, num_classes, loss_fn, device,
     KHONG dung de chon best model -- best model PHAI dua tren mAP, dung
     yeu cau PHAN 23 (xem MetricsLogger.log_epoch).
 
+    NMS trong postprocess.py la vong lap Python thuan (khong vector
+    hoa), nen validate co the CHAM HON train ro rang tren so luong anh
+    it hon -- vi vay cung in tien do MOI log_every batch giong
+    train_one_epoch(), tranh nhin giong treo may.
+
     Returns:
         val_loss:      float
         precision:     float, TP/(TP+FP) cong don TREN CA TAP VALID
@@ -188,14 +208,19 @@ def validate(model, val_loader, num_classes, loss_fn, device,
         map_score:      float, mAP@map_iou_threshold
         ap_per_class:  dict {class_id: ap}
     """
+    import time
+
     model.eval()
     loss_meter = AverageMeter()
 
     all_predictions = []
     all_ground_truths = []
 
+    num_batches = len(val_loader)
+    start_time = time.time()
+
     with torch.no_grad():
-        for images, gt_boxes, gt_classes in val_loader:
+        for batch_idx, (images, gt_boxes, gt_classes) in enumerate(val_loader, start=1):
             images = images.to(device)
             gt_boxes_dev = [b.to(device) for b in gt_boxes]
             gt_classes_dev = [c.to(device) for c in gt_classes]
@@ -221,6 +246,16 @@ def validate(model, val_loader, num_classes, loss_fn, device,
                 boxes_b, scores_b, classes_b = results[b]
                 all_predictions.append((boxes_b.cpu(), scores_b.cpu(), classes_b.cpu()))
                 all_ground_truths.append((gt_boxes[b], gt_classes[b]))
+
+            if batch_idx == 1 or batch_idx % log_every == 0 or batch_idx == num_batches:
+                elapsed = time.time() - start_time
+                sec_per_batch = elapsed / batch_idx
+                eta_sec = sec_per_batch * (num_batches - batch_idx)
+                print(
+                    f"  [valid] batch {batch_idx:4d}/{num_batches} | "
+                    f"{sec_per_batch:.2f}s/batch | ETA validate: {eta_sec/60:.1f} phut",
+                    flush=True,
+                )
 
     map_score, ap_per_class = calculate_map(
         all_predictions, all_ground_truths, num_classes, iou_threshold=map_iou_threshold
@@ -300,10 +335,15 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
 
     print(f"Thiet bi          : {device}")
     print(f"So anh train/valid: {len(train_dataset)} / {len(val_dataset)}")
+    print(f"So batch train/valid (batch_size={batch_size}): "
+          f"{len(train_loader)} / {len(val_loader)}")
     print(f"num_classes       : {num_classes}  class_names: {class_names}\n")
 
     for epoch in range(1, epochs + 1):
+        print(f"--- Epoch {epoch}/{epochs}: bat dau train ---")
         train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
+
+        print(f"--- Epoch {epoch}/{epochs}: bat dau validate ---")
         val_loss, precision, recall, map_score, ap_per_class = validate(
             model, val_loader, num_classes, loss_fn, device,
             conf_threshold=conf_threshold,
