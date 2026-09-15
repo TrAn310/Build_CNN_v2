@@ -25,6 +25,16 @@ BUOC 2 (Bai 11 - Training that + Validation):
     bai kiem tra code doc lap, khong phu thuoc dataset that): run_training()
     moi la ham dung de train THAT SU tren du lieu YOLO cua ban.
 
+BUOC 3 (cai thien chong overfit -- them sau khi da co ket qua overfit ro ret):
+    - Data augmentation (flip ngang + brightness) bat trong dataset.py,
+      o day chi can truyen augment=True cho train_dataset, augment=False
+      cho val_dataset (KHONG BAO GIO augment tap validation).
+    - LR scheduler (CosineAnnealingLR) + weight_decay trong optimizer Adam,
+      giup hoi tu muot hon ve cuoi va giam overfit nhe qua L2 penalty.
+    - Early stopping dua tren mAP validation (khong dua train_loss/val_loss,
+      dung PHAN 23): dung som neu mAP khong cai thien sau `patience` epoch
+      lien tiep, tranh train lang phi het `epochs` khi model da bao hoa.
+
 CAU TRUC THU MUC THAT:
     Src/
     ├── dataset/       (collate.py, dataset.py, parser.py)
@@ -69,6 +79,7 @@ import argparse
 
 import torch
 from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from detector import MiniPPEDetector
@@ -288,7 +299,7 @@ def validate(model, val_loader, num_classes, loss_fn, device,
 def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
                   data_yaml_path, epochs=50, batch_size=8, lr=1e-3, img_size=640,
                   conf_threshold=0.3, nms_iou_threshold=0.5, map_iou_threshold=0.5,
-                  device=None):
+                  device=None, augment=True, weight_decay=5e-4, patience=20):
     """
     TRAINING THAT SU tren dataset YOLO that -- day la ham ban goi de
     train tren du lieu cua minh (khac voi overfit test o __main__, von
@@ -302,6 +313,14 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
         conf_threshold, nms_iou_threshold: dung trong buoc decode+NMS luc validate
         map_iou_threshold:              nguong IoU de tinh mAP (mac dinh mAP@0.5)
         device:                         "cuda"/"cpu", None -> tu dong chon
+        augment:                        MOI -- bat/tat data augmentation (flip +
+                                         brightness) cho TAP TRAIN. Tap valid
+                                         KHONG BAO GIO augment, du tham so nay la gi.
+        weight_decay:                   MOI -- L2 regularization cho Adam optimizer,
+                                         giup giam overfit (mac dinh 5e-4).
+        patience:                       MOI -- so epoch lien tiep KHONG cai thien
+                                         mAP truoc khi dung som (early stopping).
+                                         Dat <= 0 hoac >= epochs de tat tinh nang nay.
 
     Output (ghi ra dia, dung cau truc thu muc PHAN 32):
         outputs/checkpoints/last_model.pth  -- ghi de MOI epoch
@@ -314,8 +333,14 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
 
     num_classes, class_names = load_dataset_config(data_yaml_path)
 
-    train_dataset = PPEDetectionDataset(train_img_dir, train_label_dir, img_size=img_size)
-    val_dataset = PPEDetectionDataset(val_img_dir, val_label_dir, img_size=img_size)
+    # MOI: augment=True CHI cho train_dataset. val_dataset LUON augment=False
+    # (khong bao gio augment tap validation, se lam sai lech mAP danh gia).
+    train_dataset = PPEDetectionDataset(
+        train_img_dir, train_label_dir, img_size=img_size, augment=augment
+    )
+    val_dataset = PPEDetectionDataset(
+        val_img_dir, val_label_dir, img_size=img_size, augment=False
+    )
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
@@ -325,7 +350,13 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
     )
 
     model = MiniPPEDetector(num_classes=num_classes).to(device)
-    optimizer = Adam(model.parameters(), lr=lr)
+    # MOI: them weight_decay (L2 penalty) -- regularization gan nhu mien phi,
+    # phat trong so lon, giup giam overfit.
+    optimizer = Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    # MOI: CosineAnnealingLR -- giam LR dan tu lr xuong con lr*0.01 theo hinh
+    # cosine trong suot qua trinh train, giup hoi tu muot hon ve cuoi thay vi
+    # giu LR co dinh 1e-3 suot 100 epoch (de gay dao dong mAP cuoi training).
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * 0.01)
     loss_fn = DetectionLoss()
     logger = MetricsLogger()
 
@@ -337,7 +368,14 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
     print(f"So anh train/valid: {len(train_dataset)} / {len(val_dataset)}")
     print(f"So batch train/valid (batch_size={batch_size}): "
           f"{len(train_loader)} / {len(val_loader)}")
-    print(f"num_classes       : {num_classes}  class_names: {class_names}\n")
+    print(f"num_classes       : {num_classes}  class_names: {class_names}")
+    print(f"augment (train)   : {augment}  |  weight_decay: {weight_decay}  |  "
+          f"early-stop patience: {patience}\n")
+
+    # MOI: early stopping dua tren mAP validation (khong dua train/val_loss,
+    # dung PHAN 23 -- best model van chon theo logger.log_epoch nhu cu).
+    best_map_so_far = -1.0
+    no_improve_count = 0
 
     for epoch in range(1, epochs + 1):
         print(f"--- Epoch {epoch}/{epochs}: bat dau train ---")
@@ -353,11 +391,16 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
 
         is_best = logger.log_epoch(epoch, train_loss, val_loss, precision, recall, map_score)
 
+        # MOI: buoc scheduler SAU MOI epoch (khong phai sau moi batch)
+        current_lr = optimizer.param_groups[0]["lr"]
+        scheduler.step()
+
         flag = "  <-- BEST (luu best_model.pth)" if is_best else ""
         print(
             f"Epoch {epoch:3d}/{epochs} | train_loss={train_loss:.4f} "
             f"val_loss={val_loss:.4f} | precision={precision:.3f} "
-            f"recall={recall:.3f} | mAP@{map_iou_threshold}={map_score:.4f}{flag}"
+            f"recall={recall:.3f} | mAP@{map_iou_threshold}={map_score:.4f} "
+            f"| lr={current_lr:.6f}{flag}"
         )
 
         # last_model.pth: LUON ghi de moi epoch (de biet trang thai train gan nhat)
@@ -374,6 +417,20 @@ def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
             )
 
         logger.save_csv(_LOG_CSV_PATH)
+
+        # MOI: cap nhat bo dem early stopping DUA TREN mAP (khong dua loss)
+        if map_score > best_map_so_far:
+            best_map_so_far = map_score
+            no_improve_count = 0
+        else:
+            no_improve_count += 1
+
+        if patience > 0 and no_improve_count >= patience:
+            print(
+                f"\nKhong cai thien mAP sau {patience} epoch lien tiep "
+                f"-> dung som tai epoch {epoch} (early stopping)."
+            )
+            break
 
     print(f"\nHoan tat training. Best epoch = {logger.best_epoch} (mAP={logger.best_map:.4f})")
     print(f"Checkpoint luu tai : {_CKPT_DIR}")
@@ -397,6 +454,13 @@ if __name__ == "__main__":
     _parser.add_argument("--batch-size", type=int, default=8)
     _parser.add_argument("--lr", type=float, default=1e-3)
     _parser.add_argument("--img-size", type=int, default=640)
+    # MOI: cac tham so dong lenh cho augmentation / weight_decay / early stopping
+    _parser.add_argument("--no-augment", action="store_true",
+                          help="Tat data augmentation cho tap train (mac dinh: BAT).")
+    _parser.add_argument("--weight-decay", type=float, default=5e-4)
+    _parser.add_argument("--patience", type=int, default=20,
+                          help="So epoch khong cai thien mAP truoc khi dung som. "
+                               "Dat 0 de tat early stopping.")
     _args = _parser.parse_args()
 
     if _args.train_img_dir is not None:
@@ -416,12 +480,18 @@ if __name__ == "__main__":
             batch_size=_args.batch_size,
             lr=_args.lr,
             img_size=_args.img_size,
+            augment=not _args.no_augment,
+            weight_decay=_args.weight_decay,
+            patience=_args.patience,
         )
         sys.exit(0)
 
     # ==================================================================
     # PHAN 22 - OVERFIT 1 ANH
     # Bai test bat buoc TRUOC KHI dung dataset that.
+    # GIU NGUYEN 100% so voi ban goc -- day la bai kiem tra CODE doc lap,
+    # KHONG dung augmentation/scheduler/weight_decay/early_stopping (cac
+    # thu do chi danh cho run_training() tren dataset that o tren).
     # ==================================================================
     torch.manual_seed(0)
 
