@@ -81,20 +81,22 @@ from evaluator import match_predictions_to_ground_truth, summarize, calculate_ma
 from Metrics import AverageMeter, MetricsLogger
 
 
-def save_checkpoint(model, num_classes, class_names, save_path, img_size=640):
-    """
-    Luu checkpoint kem THEO CA METADATA (num_classes, class_names, img_size),
-    khong chi trong so thuan tuy. Day la diem mau chot de predict.py sau
-    nay KHONG BAO GIO can sua code cung du doi dataset/so class khac nhau -
-    predict.py se tu doc lai dung thong tin nay tu file checkpoint.
-    """
+def save_checkpoint(model, num_classes, class_names, save_path, img_size=640,
+                     optimizer=None, epoch=None, best_map=None):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    torch.save({
+    ckpt = {
         "model_state_dict": model.state_dict(),
         "num_classes": num_classes,
         "class_names": class_names,
         "img_size": img_size,
-    }, save_path)
+    }
+    if optimizer is not None:
+        ckpt["optimizer_state_dict"] = optimizer.state_dict()
+    if epoch is not None:
+        ckpt["epoch"] = epoch
+    if best_map is not None:
+        ckpt["best_map"] = best_map
+    torch.save(ckpt, save_path)
     print(f"Da luu checkpoint: {save_path}")
 
 
@@ -288,7 +290,7 @@ def validate(model, val_loader, num_classes, loss_fn, device,
 def run_training(train_img_dir, train_label_dir, val_img_dir, val_label_dir,
                   data_yaml_path, epochs=50, batch_size=8, lr=1e-3, img_size=640,
                   conf_threshold=0.3, nms_iou_threshold=0.5, map_iou_threshold=0.5,
-                  device=None):
+                  device=None, resume=False):
     """
     TRAINING THAT SU tren dataset YOLO that -- day la ham ban goi de
     train tren du lieu cua minh (khac voi overfit test o __main__, von
