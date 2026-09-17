@@ -1,80 +1,45 @@
 """
 neck.py
+FPN-like top-down fusion.
 
-Feature Pyramid-style Neck đơn giản (top-down + lateral connection).
-
-Nhiệm vụ: nhận P3, P4, P5 từ Backbone (khác channel, khác semantic level),
-    fuse thông tin theo hướng top-down (P5 -> P4 -> P3) để mỗi output
-    (F3, F4, F5) vừa có semantic sâu (từ P5) vừa giữ chi tiết không gian
-    (từ P3/P4).
-
-Input:
-    p3: [B, 128, 80, 80]
-    p4: [B, 256, 40, 40]
-    p5: [B, 512, 20, 20]
-
-Output:
-    f3: [B, 256, 80, 80]
-    f4: [B, 256, 40, 40]
-    f5: [B, 256, 20, 20]
+P5 -> Conv -> Upsample x2 -> Concat P4 -> Conv -> F4
+F4 -> Conv -> Upsample x2 -> Concat P3 -> Conv -> F3
+F4 -> Conv stride 2 -> Concat P5 -> Conv -> F5
 """
 
 import torch
 import torch.nn as nn
-
-from block import ConvBlock
+import torch.nn.functional as F
+from .blocks import ConvBlock
 
 
 class Neck(nn.Module):
-    def __init__(self, c3=128, c4=256, c5=512, out_channels=256):
+    def __init__(self, in_channels, out_channels=128):
         super().__init__()
+        c3, c4, c5 = in_channels
 
-        # ---- Lateral conv: chỉ đổi số channel về out_channels, giữ nguyên H,W ----
-        # kernel_size=1 -> không trộn thông tin không gian, chỉ trộn channel
-        self.reduce5 = ConvBlock(c5, out_channels, kernel_size=1, padding=0)
-        self.reduce4 = ConvBlock(c4, out_channels, kernel_size=1, padding=0)
-        self.reduce3 = ConvBlock(c3, out_channels, kernel_size=1, padding=0)
+        self.lat5 = nn.Conv2d(c5, out_channels, 1)
+        self.lat4 = nn.Conv2d(c4, out_channels, 1)
+        self.lat3 = nn.Conv2d(c3, out_channels, 1)
 
-        # ---- Upsample: nhân đôi H, W bằng nearest interpolation ----
-        # (không có tham số học được, chỉ là phép nội suy)
-        self.upsample = nn.Upsample(scale_factor=2, mode="nearest")
+        self.smooth4 = ConvBlock(out_channels * 2, out_channels, k=3)
+        self.smooth3 = ConvBlock(out_channels * 2, out_channels, k=3)
 
-        # ---- Fuse conv: sau khi concat (out_channels + out_channels),
-        #      dùng conv 3x3 để trộn thông tin không gian + giảm về out_channels ----
-        self.fuse4 = ConvBlock(out_channels * 2, out_channels, kernel_size=3, padding=1)
-        self.fuse3 = ConvBlock(out_channels * 2, out_channels, kernel_size=3, padding=1)
+        self.down5 = ConvBlock(out_channels, out_channels, k=3, s=2)
+        self.out_channels = out_channels
 
     def forward(self, p3, p4, p5):
-        # F5: chỉ cần giảm channel, không cần fuse gì thêm (đã là cấp sâu nhất)
-        f5 = self.reduce5(p5)                     # [B,256,20,20]
+        l5 = self.lat5(p5)
+        l4 = self.lat4(p4)
+        l3 = self.lat3(p3)
 
-        # ---- Fuse F5 -> P4 ----
-        f5_up = self.upsample(f5)                 # [B,256,40,40]
-        p4_lat = self.reduce4(p4)                 # [B,256,40,40]
-        cat4 = torch.cat([f5_up, p4_lat], dim=1)  # [B,512,40,40]
-        f4 = self.fuse4(cat4)                     # [B,256,40,40]
+        up5 = F.interpolate(l5, scale_factor=2, mode='nearest')
+        cat4 = torch.cat([up5, l4], dim=1)
+        f4 = self.smooth4(cat4)
 
-        # ---- Fuse F4 -> P3 ----
-        f4_up = self.upsample(f4)                 # [B,256,80,80]
-        p3_lat = self.reduce3(p3)                 # [B,256,80,80]
-        cat3 = torch.cat([f4_up, p3_lat], dim=1)  # [B,512,80,80]
-        f3 = self.fuse3(cat3)                     # [B,256,80,80]
+        up4 = F.interpolate(f4, scale_factor=2, mode='nearest')
+        cat3 = torch.cat([up4, l3], dim=1)
+        f3 = self.smooth3(cat3)
 
+        f5 = self.down5(f4)
         return f3, f4, f5
-
-
-if __name__ == "__main__":
-    # ---- TEST RIÊNG NECK bằng feature map GIẢ (chưa cần chạy Backbone thật) ----
-    p3 = torch.randn(2, 128, 80, 80)
-    p4 = torch.randn(2, 256, 40, 40)
-    p5 = torch.randn(2, 512, 20, 20)
-
-    neck = Neck(c3=128, c4=256, c5=512, out_channels=256)
-    f3, f4, f5 = neck(p3, p4, p5)
-
-    print("F3 shape:", f3.shape)  # Expected: [2, 256, 80, 80]
-    print("F4 shape:", f4.shape)  # Expected: [2, 256, 40, 40]
-    print("F5 shape:", f5.shape)  # Expected: [2, 256, 20, 20]
-
-    num_params = sum(p.numel() for p in neck.parameters())
-    print("Neck params:", num_params)

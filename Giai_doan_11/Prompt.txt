@@ -2232,3 +2232,53 @@ Sau đó:
 ```
 
 Không được chuyển bài nếu sinh viên chưa vượt qua checkpoint của bài trước.
+custom_ppe_detector/
+│
+├── data/
+│   └── detection/
+│       ├── images/{train,val,test}/
+│       └── labels/{train,val,test}/
+│
+├── src/
+│   ├── __init__.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── blocks.py
+│   │   ├── backbone.py
+│   │   ├── neck.py
+│   │   ├── head.py
+│   │   └── detector.py
+│   ├── dataset/
+│   │   ├── __init__.py
+│   │   ├── parser.py
+│   │   ├── dataset.py
+│   │   └── collate.py
+│   ├── training/
+│   │   ├── __init__.py
+│   │   ├── target_assigner.py
+│   │   ├── losses.py
+│   │   └── train.py
+│   ├── inference/
+│   │   ├── __init__.py
+│   │   ├── decoder.py
+│   │   ├── postprocess.py
+│   │   ├── predict.py
+│   │   └── video.py
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   └── evaluator.py
+│   ├── association/
+│   │   ├── __init__.py
+│   │   └── ppe_association.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── visualization.py
+│       └── metrics.py
+│
+├── train.py
+├── predict.py
+├── evaluate.py
+├── video_inference.py
+├── overfit_test.py
+├── requirements.txt
+└── README.md

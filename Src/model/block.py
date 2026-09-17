@@ -1,44 +1,47 @@
+"""
+blocks.py
+Building blocks cơ bản cho detector.
+"""
+
 import torch
 import torch.nn as nn
 
 
 class ConvBlock(nn.Module):
-    
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+    """Conv2d -> BatchNorm2d -> SiLU"""
+    def __init__(self, c_in, c_out, k=3, s=1, p=None, g=1):
         super().__init__()
-
-        self.conv = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            bias=False,  # bias=False vì BatchNorm ngay sau đã có phần "shift" riêng
-        )
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.ReLU(inplace=True)
+        if p is None:
+            p = k // 2
+        self.conv = nn.Conv2d(c_in, c_out, k, s, p, groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c_out)
+        self.act = nn.SiLU(inplace=True)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.act(x)
-        return x
+        return self.act(self.bn(self.conv(x)))
 
 
-if __name__ == "__main__":
-    # ---- TEST RIÊNG BLOCK NÀY TRƯỚC KHI DÙNG TRONG BACKBONE ----
-    block = ConvBlock(in_channels=3, out_channels=32, stride=2)
+class ResidualBlock(nn.Module):
+    """Residual block đơn giản."""
+    def __init__(self, c_in, c_out, stride=1):
+        super().__init__()
+        self.conv1 = ConvBlock(c_in, c_out, k=3, s=stride)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(c_out, c_out, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(c_out),
+        )
+        if c_in != c_out or stride != 1:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(c_in, c_out, 1, stride, bias=False),
+                nn.BatchNorm2d(c_out),
+            )
+        else:
+            self.shortcut = nn.Identity()
+        self.act = nn.SiLU(inplace=True)
 
-    x = torch.randn(2, 3, 640, 640)
-    out = block(x)
-
-    print("Input shape :", x.shape)
-    print("Output shape:", out.shape)
-
-    # Expected: Output shape: torch.Size([2, 32, 320, 320])
-    block2 = ConvBlock(in_channels=32, out_channels=64, stride=2)
-    x2 = torch.randn(2, 32, 320, 320)
-    out2 = block2(x2)
-    print("Input shape :", x2.shape)
-    print("Output shape:", out2.shape)
+    def forward(self, x):
+        identity = self.shortcut(x)
+        out = self.conv1(x)
+        out = self.conv2(out)
+        return self.act(out + identity)
+    
