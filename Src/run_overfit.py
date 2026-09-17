@@ -123,12 +123,20 @@ class CustomPPEDetector(nn.Module):
 # ============================================================
 
 def build_targets(targets, num_classes, img_size, strides, feat_sizes):
+    """
+    Gán GT box vào VÙNG 3×3 cells quanh tâm object cho MỖI scale.
+    Giải quyết:
+      - Miss object do ghi đè cùng cell (2 objects gần nhau)
+      - Object lớn cần nhiều cells để model học
+    """
     device = targets[0].device if len(targets) > 0 else 'cpu'
     B = len(targets)
+
     all_targets = []
     for stride, (H, W) in zip(strides, feat_sizes):
         t = torch.zeros(B, 5 + num_classes, H, W, device=device)
         all_targets.append(t)
+
     for b in range(B):
         if targets[b] is None or targets[b].shape[0] == 0:
             continue
@@ -136,31 +144,37 @@ def build_targets(targets, num_classes, img_size, strides, feat_sizes):
         for row in gt:
             cls = int(row[0].item())
             xc, yc, w, h = (row[1:] * img_size).tolist()
-            obj_size = (w * h) ** 0.5
-            best_s = 0
-            best_diff = 1e9
-            for si, st in enumerate(strides):
-                diff = abs(st - obj_size)
-                if diff < best_diff:
-                    best_diff = diff
-                    best_s = si
-            stride = strides[best_s]
-            H, W = feat_sizes[best_s]
-            gx = max(0, min(W - 1, int(xc / stride)))
-            gy = max(0, min(H - 1, int(yc / stride)))
-            tx = xc / stride - gx
-            ty = yc / stride - gy
-            tw = torch.log(torch.tensor(max(w / stride, 1e-3), device=device))
-            th = torch.log(torch.tensor(max(h / stride, 1e-3), device=device))
-            t = all_targets[best_s][b]
-            t[0, gy, gx] = tx
-            t[1, gy, gx] = ty
-            t[2, gy, gx] = tw
-            t[3, gy, gx] = th
-            t[4, gy, gx] = 1.0
-            t[5 + cls, gy, gx] = 1.0
-    return all_targets
 
+            for s_idx, stride in enumerate(strides):
+                H, W = feat_sizes[s_idx]
+                gx = max(0, min(W - 1, int(xc / stride)))
+                gy = max(0, min(H - 1, int(yc / stride)))
+
+                # === GÁN VÙNG 3x3 QUANH CELL (gy, gx) ===
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        yy = gy + dy
+                        xx = gx + dx
+                        if yy < 0 or yy >= H or xx < 0 or xx >= W:
+                            continue
+
+                        # Encode box TƯƠNG ĐỐI so với cell (yy, xx), KHÔNG phải (gy, gx)
+                        tx = xc / stride - xx
+                        ty = yc / stride - yy
+                        tw = torch.log(torch.tensor(max(w / stride, 1e-3), device=device))
+                        th = torch.log(torch.tensor(max(h / stride, 1e-3), device=device))
+
+                        t = all_targets[s_idx][b]
+                        # Chỉ ghi đè nếu cell chưa có object khác
+                        if t[4, yy, xx] < 0.5:
+                            t[0, yy, xx] = tx
+                            t[1, yy, xx] = ty
+                            t[2, yy, xx] = tw
+                            t[3, yy, xx] = th
+                            t[4, yy, xx] = 1.0
+                            t[5 + cls, yy, xx] = 1.0
+
+    return all_targets
 
 # ============================================================
 # 3. LOSS
@@ -168,7 +182,7 @@ def build_targets(targets, num_classes, img_size, strides, feat_sizes):
 
 class DetectionLoss(nn.Module):
     def __init__(self, num_classes=3, lambda_box=5.0, lambda_obj=1.0, lambda_cls=1.0,
-                 pos_weight=1.0, neg_weight=0.5):
+                 pos_weight=1.0, neg_weight=1.0):
         super().__init__()
         self.num_classes = num_classes
         self.lambda_box = lambda_box
@@ -226,22 +240,43 @@ def iou_batch(boxes, box):
     return inter / union
 
 
-def nms(dets, iou_thresh=0.5):
+def nms(dets, iou_thresh=0.5, score_thresh=0.5, dist_thresh=80):
+    """
+    NMS cải tiến: gộp box nếu IoU cao HOẶC tâm gần nhau.
+    Xử lý trường hợp multi-cell assignment tạo nhiều box cho 1 object.
+    """
     if dets.shape[0] == 0:
         return dets
+
+    # Lọc theo score trước
+    dets = dets[dets[:, 4] >= score_thresh]
+    if dets.shape[0] == 0:
+        return dets
+
     keep = []
     for c in dets[:, 5].unique():
         cls_mask = dets[:, 5] == c
         cls_dets = dets[cls_mask]
         order = cls_dets[:, 4].argsort(descending=True)
         cls_dets = cls_dets[order]
+
         while cls_dets.shape[0] > 0:
             best = cls_dets[0]
             keep.append(best)
             if cls_dets.shape[0] == 1:
                 break
+
             ious = iou_batch(cls_dets[1:, :4], best[:4])
-            cls_dets = cls_dets[1:][ious < iou_thresh]
+
+            best_cx = (best[0] + best[2]) / 2
+            best_cy = (best[1] + best[3]) / 2
+            other_cx = (cls_dets[1:, 0] + cls_dets[1:, 2]) / 2
+            other_cy = (cls_dets[1:, 1] + cls_dets[1:, 3]) / 2
+            dists = torch.sqrt((best_cx - other_cx)**2 + (best_cy - other_cy)**2)
+
+            keep_mask = (ious < iou_thresh) & (dists > dist_thresh)
+            cls_dets = cls_dets[1:][keep_mask]
+
     if len(keep) == 0:
         return torch.zeros(0, 6, device=dets.device)
     return torch.stack(keep, dim=0)
@@ -292,9 +327,9 @@ def decode_predictions(raw_outputs, strides, num_classes, img_size=640, conf_thr
 
 
 def postprocess(raw_outputs, strides, num_classes, img_size=640,
-                conf_thresh=0.3, iou_thresh=0.5):
+                conf_thresh=0.3, iou_thresh=0.5, score_thresh=0.5):
     decoded = decode_predictions(raw_outputs, strides, num_classes, img_size, conf_thresh)
-    return [nms(d, iou_thresh) for d in decoded]
+    return [nms(d, iou_thresh, score_thresh) for d in decoded]
 
 
 # ============================================================
@@ -357,9 +392,9 @@ def parse_yolo_label(label_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--img', type=str, default='Src/overfit_test/test.jpg')
-    parser.add_argument('--lbl', type=str, default='Src/overfit_test/test.txt')
-    parser.add_argument('--data_yaml', type=str, default='Src/Data/dataset/data.yaml')
+    parser.add_argument('--img', type=str, default='overfit_test/test.jpg')
+    parser.add_argument('--lbl', type=str, default='overfit_test/test.txt')
+    parser.add_argument('--data_yaml', type=str, default='Data/data.yaml')
     parser.add_argument('--num_classes', type=int, default=None)
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -438,7 +473,8 @@ def main():
     with torch.no_grad():
         raw = model(x)
         dets = postprocess(raw, strides, num_classes,
-                           args.img_size, conf_thresh=0.3, iou_thresh=0.5)[0]
+                   args.img_size, conf_thresh=0.5, iou_thresh=0.5,
+                   score_thresh=0.7)[0]
     print(f'\n[Overfit] Detections: {dets.shape[0]}')
     if dets.shape[0] > 0:
         for d in dets.cpu().numpy():
