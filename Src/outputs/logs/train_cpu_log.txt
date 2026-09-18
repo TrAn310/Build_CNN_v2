@@ -1,0 +1,6 @@
+device=cpu
+num_classes=10
+class_names=['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'machinery', 'vehicle']
+train_samples=2605
+val_samples=114
+
