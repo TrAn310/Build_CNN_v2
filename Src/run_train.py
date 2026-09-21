@@ -18,21 +18,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # CẤU HÌNH — CHỈNH CHO RTX 5060 Ti (16GB VRAM)
 # ============================================================
 CONFIG = {
-    'train_img':   'Data/train/images',
-    'train_lbl':   'Data/train/labels',
-    'val_img':     'Data/valid/images',
-    'val_lbl':     'Data/valid/labels',
-    'data_yaml':   'Data/data.yaml',
-    'save_dir':    'outputs/checkpoints',
-    'log_dir':     'outputs/logs',
+    'train_img':   'Src/Data/train/images',
+    'train_lbl':   'Src/Data/train/labels',
+    'val_img':     'Src/Data/valid/images',
+    'val_lbl':     'Src/Data/valid/labels',
+    'data_yaml':   'Src/Data/data.yaml',
+    'save_dir':    'Src/outputs/checkpoints',
+    'log_dir':     'Src/outputs/logs',
     'img_size':    640,
-    'epochs':      50,
-    'batch_size':  16,         # RTX 5060 Ti 16GB → 16 ổn
-    'lr':          1e-3,
-    'num_workers': 4,          # Windows: 0 nếu bị lỗi, Linux: 4-8
+    'epochs':      80,
+    'batch_size':  8,         # RTX 5060 Ti 16GB → 16 ổn
+    'lr':          3e-4,
+    'num_workers': 6,          # Windows: 0 nếu bị lỗi, Linux: 4-8
     'device':      'cuda',
     'width_mult':  1.0,
     'amp':         True,       # Mixed precision (nhanh hơn ~30%)
+    'patience':    12,
+    'weight_decay':5e-4,
 }
 
 
@@ -71,12 +73,12 @@ def main():
     import torch
     from torch.utils.data import DataLoader
 
-    from models.detector import CustomPPEDetector
-    from dataset.dataset import PPEDetectionDataset
-    from dataset.collate import collate_fn
-    from training.target_assigner import build_targets
-    from training.losses import DetectionLoss
-    from training.train import train_one_epoch, validate
+    from Src.models.detector import CustomPPEDetector
+    from Src.dataset.dataset import PPEDetectionDataset
+    from Src.dataset.collate import collate_fn
+    from Src.training.target_assigner import build_targets
+    from Src.training.losses import DetectionLoss
+    from Src.training.train import train_one_epoch, validate
 
     print('=' * 70)
     print('TRAIN FULL DATASET — GPU MODE')
@@ -106,9 +108,9 @@ def main():
 
     # --- Dataset ---
     train_ds = PPEDetectionDataset(CONFIG['train_img'], CONFIG['train_lbl'],
-                                   img_size=CONFIG['img_size'], augment=True)
+                                   img_size=CONFIG['img_size'], augment=True, cache=False,)
     val_ds = PPEDetectionDataset(CONFIG['val_img'], CONFIG['val_lbl'],
-                                 img_size=CONFIG['img_size'], augment=False)
+                                 img_size=CONFIG['img_size'], augment=False,cache=False,)
     print(f'\nTrain samples: {len(train_ds)}')
     print(f'Val samples:   {len(val_ds)}')
     print(f'Batch size:    {CONFIG["batch_size"]}')
@@ -119,11 +121,15 @@ def main():
         train_ds, batch_size=CONFIG['batch_size'], shuffle=True,
         num_workers=CONFIG['num_workers'], collate_fn=collate_fn,
         pin_memory=True, drop_last=True,
+        persistent_workers=True,
+        prefetch_factor=2,
     )
     val_loader = DataLoader(
         val_ds, batch_size=CONFIG['batch_size'], shuffle=False,
         num_workers=CONFIG['num_workers'], collate_fn=collate_fn,
         pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=2,
     )
 
     # --- Model ---

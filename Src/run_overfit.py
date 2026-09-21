@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from Utils.dataset_info import get_dataset_info
+from Src.Utils.dataset_info import get_dataset_info
 
 
 # ============================================================

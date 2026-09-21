@@ -1,14 +1,14 @@
-"""
+﻿"""
 head.py
 Anchor-free detection head.
 
 Output: [B, 5 + num_classes, H, W]
-Trong đó: (tx, ty, tw, th, objectness, cls_0..cls_{C-1})
+Trong Ä‘Ã³: (tx, ty, tw, th, objectness, cls_0..cls_{C-1})
 """
 
 import torch
 import torch.nn as nn
-from .blocks import ConvBlock
+from Src.models.blocks import ConvBlock
 
 
 class DetectionHead(nn.Module):
@@ -24,7 +24,7 @@ class DetectionHead(nn.Module):
         self.pred_box = nn.Conv2d(hidden, 5, 1)
         self.pred_cls = nn.Conv2d(hidden, num_classes, 1)
 
-        # Init bias objectness âm để tránh positive ban đầu
+        # Init bias objectness Ã¢m Ä‘á»ƒ trÃ¡nh positive ban Ä‘áº§u
         nn.init.constant_(self.pred_box.bias[4], -4.0)
 
     def forward(self, x):

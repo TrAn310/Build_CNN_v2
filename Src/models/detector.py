@@ -1,6 +1,6 @@
-"""
+﻿"""
 detector.py
-Custom PPE Detector hoàn chỉnh.
+Custom PPE Detector hoÃ n chá»‰nh.
 
 Pipeline:
     Image [B,3,640,640]
@@ -13,9 +13,9 @@ Pipeline:
 """
 
 import torch.nn as nn
-from .backbone import Backbone
-from .neck import Neck
-from .head import DetectionHead
+from Src.models.backbone import Backbone
+from Src.models.neck import Neck
+from Src.models.head import DetectionHead
 
 
 class CustomPPEDetector(nn.Module):

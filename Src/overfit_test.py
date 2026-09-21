@@ -10,13 +10,13 @@ import torch
 import cv2
 from torch.utils.data import DataLoader, Dataset
 
-from src.models.detector import CustomPPEDetector
-from src.dataset.parser import parse_yolo_label
-from src.dataset.collate import collate_fn
-from src.training.target_assigner import build_targets
-from src.training.losses import DetectionLoss
-from src.inference.postprocess import postprocess
-from src.utils.visualization import draw_boxes
+from Src.models.detector import CustomPPEDetector
+from Src.dataset.parser import parse_yolo_label
+from Src.dataset.collate import collate_fn
+from Src.training.target_assigner import build_targets
+from Src.training.losses import DetectionLoss
+from Src.inference.postprocess import postprocess
+from Src.Utils.Visualization import draw_boxes
 
 
 class OneImageDataset(Dataset):

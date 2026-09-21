@@ -1,11 +1,11 @@
-"""
+﻿"""
 evaluator.py
-Precision/Recall/F1/AP/mAP tự code.
+Precision/Recall/F1/AP/mAP tá»± code.
 """
 
 import numpy as np
 import torch
-from ..inference.postprocess import iou_batch, postprocess
+from Src.inference.postprocess import iou_batch, postprocess
 
 
 def _gt_to_xyxy(gts):
@@ -42,9 +42,9 @@ def compute_ap_11point(precisions, recalls):
 
 def compute_ap_from_curve(scores, tps, num_gt):
     """
-    scores: list float (score của từng prediction, đã sort)
-    tps:    list int (1 nếu TP, 0 nếu FP)
-    num_gt: tổng số GT của class
+    scores: list float (score cá»§a tá»«ng prediction, Ä‘Ã£ sort)
+    tps:    list int (1 náº¿u TP, 0 náº¿u FP)
+    num_gt: tá»•ng sá»‘ GT cá»§a class
     """
     if num_gt == 0 or len(scores) == 0:
         return 0.0
@@ -55,15 +55,41 @@ def compute_ap_from_curve(scores, tps, num_gt):
     fp_cum = np.cumsum(1 - tps[order])
     precisions = tp_cum / (tp_cum + fp_cum + 1e-6)
     recalls = tp_cum / (num_gt + 1e-6)
-    return compute_ap_11point(precisions.tolist(), recalls.tolist())
+    return compute_ap_continuous(precisions.tolist(), recalls.tolist())
 
+def compute_ap_continuous(precisions, recalls):
+    """
+    Continuous interpolation AP (Pascal VOC 2010+).
+    Chính xác hơn 11-point, được dùng trong mọi benchmark hiện đại.
+    """
+    if len(precisions) == 0:
+        return 0.0
+    
+    precisions = np.array(precisions, dtype=np.float64)
+    recalls = np.array(recalls, dtype=np.float64)
+    
+    # Bước 1: làm precision monotonically decreasing (từ phải sang trái)
+    # p[i] = max(p[i], p[i+1], ..., p[-1])
+    for i in range(len(precisions) - 2, -1, -1):
+        precisions[i] = max(precisions[i], precisions[i + 1])
+    
+    # Bước 2: tích phân diện tích dưới curve
+    ap = 0.0
+    prev_r = 0.0
+    for p, r in zip(precisions, recalls):
+        ap += p * (r - prev_r)
+        prev_r = r
+    
+    return float(ap)
 
 @torch.no_grad()
 def evaluate(model, loader, device, num_classes, img_size,
-             strides, conf_thresh=0.3, iou_thresh=0.5,
+             strides, conf_thresh=0.3, nms_iou=0.5, match_iou=0.5,
              class_names=None):
     """
     Trả về dict metrics tổng + per-class.
+    - nms_iou: IoU threshold cho NMS (loại box trùng)
+    - match_iou: IoU threshold để match TP/FP (mAP@match_iou)
     """
     if class_names is None:
         class_names = [f'class_{i}' for i in range(num_classes)]
@@ -76,7 +102,7 @@ def evaluate(model, loader, device, num_classes, img_size,
         imgs = imgs.to(device)
         raw = model(imgs)
         dets = postprocess(raw, strides, num_classes, img_size,
-                           conf_thresh, iou_thresh)
+                           conf_thresh, nms_iou)   # ← dùng nms_iou
 
         for b in range(imgs.shape[0]):
             gt = targets[b].clone().to(device)
@@ -94,7 +120,6 @@ def evaluate(model, loader, device, num_classes, img_size,
 
                 per_class_num_gt[c] += g_c.shape[0]
 
-                # Sort predictions theo score giảm dần
                 if p_c.shape[0] > 0:
                     order = p_c[:, 4].argsort(descending=True)
                     p_c = p_c[order]
@@ -110,7 +135,8 @@ def evaluate(model, loader, device, num_classes, img_size,
                         if iou > best_iou:
                             best_iou = iou
                             best_gi = gi
-                    is_tp = 1 if (best_iou >= iou_thresh and best_gi >= 0) else 0
+                    # ← dùng match_iou
+                    is_tp = 1 if (best_iou >= match_iou and best_gi >= 0) else 0
                     if is_tp:
                         matched_gt.add(best_gi)
                     per_class_preds[c].append((p[4].item(), is_tp))

@@ -1,4 +1,4 @@
-"""
+﻿"""
 backbone.py
 Custom CNN backbone, output P3/P4/P5.
 
@@ -9,7 +9,7 @@ Output: P3 [B, c3, 80, 80]
 """
 
 import torch.nn as nn
-from .blocks import ConvBlock, ResidualBlock
+from Src.models.blocks import ConvBlock, ResidualBlock
 
 
 class Backbone(nn.Module):

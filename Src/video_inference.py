@@ -5,8 +5,8 @@ Entry point video inference.
 import argparse
 import torch
 
-from src.models.detector import CustomPPEDetector
-from src.inference.video import run_video
+from Src.models.detector import CustomPPEDetector
+from Src.inference.video import run_video
 
 
 def main():

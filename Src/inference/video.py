@@ -1,6 +1,6 @@
-"""
+﻿"""
 video.py
-Video/webcam inference + FPS + logging vi phạm.
+Video/webcam inference + FPS + logging vi pháº¡m.
 """
 
 import os
@@ -9,9 +9,9 @@ import time
 import cv2
 import torch
 
-from .postprocess import postprocess
-from ..utils.visualization import draw_boxes
-from ..association.ppe_association import associate_ppe
+from Src.inference.postprocess import postprocess
+from Src.Utils.visualization import draw_boxes
+from Src.association.ppe_association import associate_ppe
 
 
 @torch.no_grad()
@@ -20,11 +20,11 @@ def run_video(model, source, output_path=None, device='cpu',
               num_classes=3, save_csv=None, save_snapshots=None,
               show=True, max_frames=None):
     """
-    source: đường dẫn video (str) hoặc 0 (int) cho webcam.
+    source: Ä‘Æ°á»ng dáº«n video (str) hoáº·c 0 (int) cho webcam.
     """
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        raise RuntimeError(f'Không mở được source: {source}')
+        raise RuntimeError(f'KhÃ´ng má»Ÿ Ä‘Æ°á»£c source: {source}')
 
     fps_src = cap.get(cv2.CAP_PROP_FPS) or 30
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -71,7 +71,7 @@ def run_video(model, source, output_path=None, device='cpu',
         dets = postprocess(raw, model.strides, num_classes,
                            img_size, conf_thresh, iou_thresh)[0]
 
-        # Rescale về ảnh gốc
+        # Rescale vá» áº£nh gá»‘c
         if dets.shape[0] > 0:
             dets[:, [0, 2]] *= w / img_size
             dets[:, [1, 3]] *= h / img_size
@@ -79,7 +79,7 @@ def run_video(model, source, output_path=None, device='cpu',
         # Association
         statuses = associate_ppe(dets)
 
-        # Log vi phạm
+        # Log vi pháº¡m
         for s in statuses:
             if s['status'] != 'SAFE':
                 if csv_writer:
@@ -90,7 +90,7 @@ def run_video(model, source, output_path=None, device='cpu',
                         f'f{frame_idx:06d}_id{s["id"]}_{s["status"]}.jpg')
                     cv2.imwrite(snap, frame)
 
-        # Vẽ
+        # Váº½
         vis = draw_boxes(img_rgb, dets)
         vis = cv2.cvtColor(vis, cv2.COLOR_RGB2BGR)
 

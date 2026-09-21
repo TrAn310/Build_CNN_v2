@@ -1,4 +1,4 @@
-"""
+﻿"""
 train.py
 Training loop cho CustomPPEDetector.
 """
@@ -8,11 +8,11 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..models.detector import CustomPPEDetector
-from ..dataset.dataset import PPEDetectionDataset
-from ..dataset.collate import collate_fn
-from .target_assigner import build_targets
-from .losses import DetectionLoss
+from Src.models.detector import CustomPPEDetector
+from Src.dataset.dataset import PPEDetectionDataset
+from Src.dataset.collate import collate_fn
+from Src.training.target_assigner import build_targets
+from Src.training.losses import DetectionLoss
 
 
 def train_one_epoch(model, loader, optimizer, criterion, device,
@@ -94,14 +94,12 @@ def train(cfg):
 
     os.makedirs(cfg['save_dir'], exist_ok=True)
     best_val = float('inf')
+    patience = cfg.get('patience', 10)   # dừng nếu 10 epoch không cải thiện
+    wait = 0
 
     for epoch in range(cfg['epochs']):
-        tr_loss = train_one_epoch(model, train_loader, optimizer, criterion,
-                                  device, cfg['num_classes'], cfg['img_size'],
-                                  strides, feat_sizes)
-        val_loss = validate(model, val_loader, criterion, device,
-                            cfg['num_classes'], cfg['img_size'],
-                            strides, feat_sizes)
+        tr_loss = train_one_epoch(...)
+        val_loss = validate(...)
         scheduler.step()
         lr = optimizer.param_groups[0]['lr']
         print(f'Epoch {epoch+1:03d}/{cfg["epochs"]} | '
@@ -109,12 +107,20 @@ def train(cfg):
 
         if val_loss < best_val:
             best_val = val_loss
+            wait = 0
             torch.save(model.state_dict(),
                        os.path.join(cfg['save_dir'], 'best_model.pth'))
             print(f'  -> saved best (val={best_val:.4f})')
+        else:
+            wait += 1
+            print(f'  -> no improve ({wait}/{patience})')
+            if wait >= patience:
+                print(f'[Early Stop] Dừng tại epoch {epoch+1}')
+                break
 
         torch.save(model.state_dict(),
                    os.path.join(cfg['save_dir'], 'last_model.pth'))
 
     print(f'[Done] best val loss = {best_val:.4f}')
     return model
+

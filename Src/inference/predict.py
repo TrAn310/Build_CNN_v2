@@ -1,6 +1,6 @@
-"""
+﻿"""
 predict.py
-Inference trên 1 ảnh.
+Inference trÃªn 1 áº£nh.
 """
 
 import cv2
@@ -17,9 +17,9 @@ def preprocess(img_rgb, img_size=640):
 def predict_image(model, img_path, device='cpu', img_size=640,
                   conf_thresh=0.3, iou_thresh=0.5, num_classes=3):
     """
-    return: (img_rgb, dets) với dets [N,6] toạ độ pixel trên ảnh gốc.
+    return: (img_rgb, dets) vá»›i dets [N,6] toáº¡ Ä‘á»™ pixel trÃªn áº£nh gá»‘c.
     """
-    from .postprocess import postprocess
+    from Src.inference.postprocess import postprocess
     img = cv2.imread(img_path)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     orig_h, orig_w = img_rgb.shape[:2]
@@ -29,7 +29,7 @@ def predict_image(model, img_path, device='cpu', img_size=640,
     dets = postprocess(raw, model.strides, num_classes, img_size,
                        conf_thresh, iou_thresh)[0]
 
-    # Rescale boxes về kích thước ảnh gốc
+    # Rescale boxes vá» kÃ­ch thÆ°á»›c áº£nh gá»‘c
     if dets.shape[0] > 0:
         sx = orig_w / img_size
         sy = orig_h / img_size

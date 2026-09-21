@@ -1,72 +1,96 @@
 """
 decoder.py
-Decode raw prediction -> boxes pixel.
-
-Công thức:
-    cx = (sigmoid(tx) + grid_x) * stride
-    cy = (sigmoid(ty) + grid_y) * stride
-    w  = exp(tw) * stride
-    h  = exp(th) * stride
-    x1 = cx - w/2, ...
+Decode raw output của model thành box [x1, y1, x2, y2, score, class].
+Đã fix: clamp tọa độ, lọc box invalid, lọc objectness thấp.
 """
 
 import torch
 
 
 def decode_predictions(raw_outputs, strides, num_classes,
-                       img_size=640, conf_thresh=0.3):
+                       img_size=640, conf_thresh=0.3,
+                       obj_thresh=0.5):
+    """
+    raw_outputs: list [B, 5+C, H, W] cho mỗi scale
+    strides: [8, 16, 32]
+    obj_thresh: ngưỡng objectness tối thiểu để giữ box
+    return: list [B] mỗi phần tử là [N, 6] = [x1, y1, x2, y2, score, class]
+    """
     device = raw_outputs[0].device
     B = raw_outputs[0].shape[0]
-    results = [[] for _ in range(B)]
 
-    for out, stride in zip(raw_outputs, strides):
-        B_, C_, H, W = out.shape
-        ys, xs = torch.meshgrid(
+    all_dets = [[] for _ in range(B)]
+
+    for s_idx, (pred, stride) in enumerate(zip(raw_outputs, strides)):
+        _, _, H, W = pred.shape
+
+        # ---- Grid cell coordinates ----
+        grid_y, grid_x = torch.meshgrid(
             torch.arange(H, device=device),
             torch.arange(W, device=device),
             indexing='ij'
         )
-        grid_x = xs.float().view(1, 1, H, W)
-        grid_y = ys.float().view(1, 1, H, W)
+        grid_x = grid_x.float()
+        grid_y = grid_y.float()
 
-        tx = torch.sigmoid(out[:, 0:1])
-        ty = torch.sigmoid(out[:, 1:2])
-        tw = out[:, 2:3]
-        th = out[:, 3:4]
-        obj = torch.sigmoid(out[:, 4:5])
-        cls_prob = torch.softmax(out[:, 5:], dim=1)
+        # ---- Tách thành phần ----
+        p_box = pred[:, :4]          # [B, 4, H, W]
+        p_obj = pred[:, 4]           # [B, H, W]
+        p_cls = pred[:, 5:]          # [B, C, H, W]
 
-        cx = (tx + grid_x) * stride
-        cy = (ty + grid_y) * stride
-        w = torch.exp(tw.clamp(-4, 4)) * stride
-        h = torch.exp(th.clamp(-4, 4)) * stride
+        # ---- Decode box ----
+        xc = (grid_x.unsqueeze(0) + p_box[:, 0]) * stride
+        yc = (grid_y.unsqueeze(0) + p_box[:, 1]) * stride
+        w = torch.exp(p_box[:, 2].clamp(-10, 10)) * stride
+        h = torch.exp(p_box[:, 3].clamp(-10, 10)) * stride
 
-        x1 = cx - w / 2
-        y1 = cy - h / 2
-        x2 = cx + w / 2
-        y2 = cy + h / 2
+        x1 = xc - w / 2
+        y1 = yc - h / 2
+        x2 = xc + w / 2
+        y2 = yc + h / 2
 
-        max_cls_prob, cls_idx = cls_prob.max(dim=1, keepdim=True)
-        score = obj * max_cls_prob
+        # ---- Score ----
+        obj_score = torch.sigmoid(p_obj)              # [B, H, W]
+        cls_score = torch.softmax(p_cls, dim=1)       # [B, C, H, W]
+        cls_max, cls_idx = cls_score.max(dim=1)       # [B, H, W]
+        score = obj_score * cls_max                    # [B, H, W]
 
+        # ---- Lọc theo confidence VÀ objectness ----
         for b in range(B):
-            s = score[b, 0]
-            mask = s > conf_thresh
+            mask = (score[b] > conf_thresh) & (obj_score[b] > obj_thresh)
             if mask.sum() == 0:
                 continue
-            bx1 = x1[b, 0][mask]
-            by1 = y1[b, 0][mask]
-            bx2 = x2[b, 0][mask]
-            by2 = y2[b, 0][mask]
-            sc = s[mask]
-            ci = cls_idx[b, 0][mask]
-            det = torch.stack([bx1, by1, bx2, by2, sc, ci.float()], dim=1)
-            results[b].append(det)
 
-    final = []
+            bx1 = x1[b][mask]
+            by1 = y1[b][mask]
+            bx2 = x2[b][mask]
+            by2 = y2[b][mask]
+            bscore = score[b][mask]
+            bcls = cls_idx[b][mask].float()
+
+            # Clamp box về [0, img_size]
+            bx1 = bx1.clamp(0, img_size)
+            by1 = by1.clamp(0, img_size)
+            bx2 = bx2.clamp(0, img_size)
+            by2 = by2.clamp(0, img_size)
+
+            # Lọc box invalid
+            valid = (bx2 > bx1) & (by2 > by1)
+            if valid.sum() == 0:
+                continue
+
+            dets = torch.stack([
+                bx1[valid], by1[valid], bx2[valid], by2[valid],
+                bscore[valid], bcls[valid]
+            ], dim=1)
+
+            all_dets[b].append(dets)
+
+    results = []
     for b in range(B):
-        if len(results[b]) == 0:
-            final.append(torch.zeros(0, 6, device=device))
+        if len(all_dets[b]) == 0:
+            results.append(torch.zeros(0, 6, device=device))
         else:
-            final.append(torch.cat(results[b], dim=0))
-    return final
+            results.append(torch.cat(all_dets[b], dim=0))
+
+    return results
