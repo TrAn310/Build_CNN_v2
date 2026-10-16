@@ -8,11 +8,11 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from Src.models.detector import CustomPPEDetector
-from Src.dataset.dataset import PPEDetectionDataset
-from Src.dataset.collate import collate_fn
-from Src.training.target_assigner import build_targets
-from Src.training.losses import DetectionLoss
+from src.models.detector import CustomPPEDetector
+from src.dataset.dataset import PPEDetectionDataset
+from src.dataset.collate import collate_fn
+from src.training.target_assigner import build_targets
+from src.training.losses import DetectionLoss
 
 
 def train_one_epoch(model, loader, optimizer, criterion, device,
