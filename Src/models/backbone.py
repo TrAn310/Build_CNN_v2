@@ -9,7 +9,7 @@ Output: P3 [B, c3, 80, 80]
 """
 
 import torch.nn as nn
-from Src.models.blocks import ConvBlock, ResidualBlock
+from src.models.blocks import ConvBlock, ResidualBlock
 
 
 class Backbone(nn.Module):

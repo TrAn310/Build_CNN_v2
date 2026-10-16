@@ -10,7 +10,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as TF
-from Src.dataset.parser import parse_yolo_label
+from src.dataset.parser import parse_yolo_label
 
 
 class PPEDetectionDataset(Dataset):

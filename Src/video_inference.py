@@ -5,8 +5,8 @@ Entry point video inference.
 import argparse
 import torch
 
-from Src.models.detector import CustomPPEDetector
-from Src.inference.video import run_video
+from src.models.detector import CustomPPEDetector
+from src.inference.video import run_video
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--save_csv', type=str, default='outputs/logs/violations.csv')
     parser.add_argument('--save_snapshots', type=str, default='outputs/snapshots')
     parser.add_argument('--img_size', type=int, default=640)
-    parser.add_argument('--num_classes', type=int, default=3)
+    parser.add_argument('--num_classes', type=int, default=10)
     parser.add_argument('--conf', type=float, default=0.3)
     parser.add_argument('--iou', type=float, default=0.5)
     parser.add_argument('--device', type=str, default='cuda')

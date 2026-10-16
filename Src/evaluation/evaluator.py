@@ -5,7 +5,7 @@ Precision/Recall/F1/AP/mAP tá»± code.
 
 import numpy as np
 import torch
-from Src.inference.postprocess import iou_batch, postprocess
+from src.inference.postprocess import iou_batch, postprocess
 
 
 def _gt_to_xyxy(gts):

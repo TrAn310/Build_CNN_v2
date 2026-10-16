@@ -1,5 +1,5 @@
 """
-visualization.py
+utils_visualization.py
 Vẽ bounding box + label lên ảnh.
 """
 

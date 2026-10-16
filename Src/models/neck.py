@@ -10,7 +10,7 @@ F4 -> Conv stride 2 -> Concat P5 -> Conv -> F5
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Src.models.blocks import ConvBlock
+from src.models.blocks import ConvBlock
 
 class Neck(nn.Module):
     def __init__(self, in_channels, out_channels=128):

@@ -9,15 +9,15 @@ import time
 import cv2
 import torch
 
-from Src.inference.postprocess import postprocess
-from Src.Utils.visualization import draw_boxes
-from Src.association.ppe_association import associate_ppe
+from src.inference.postprocess import postprocess
+from src.Utils.Visualization import draw_boxes
+from src.association.ppe_association import associate_ppe
 
 
 @torch.no_grad()
 def run_video(model, source, output_path=None, device='cpu',
               img_size=640, conf_thresh=0.3, iou_thresh=0.5,
-              num_classes=3, save_csv=None, save_snapshots=None,
+              num_classes=10, save_csv=None, save_snapshots=None,
               show=True, max_frames=None):
     """
     source: Ä‘Æ°á»ng dáº«n video (str) hoáº·c 0 (int) cho webcam.
@@ -68,9 +68,16 @@ def run_video(model, source, output_path=None, device='cpu',
         tensor = torch.from_numpy(tensor).permute(2, 0, 1).unsqueeze(0).to(device)
 
         raw = model(tensor)
-        dets = postprocess(raw, model.strides, num_classes,
-                           img_size, conf_thresh, iou_thresh)[0]
-
+        dets = postprocess(
+            raw_outputs=raw,
+            strides=model.strides,
+            num_classes=num_classes,
+            img_size=img_size,
+            conf_thresh=conf_thresh,
+            iou_thresh=iou_thresh,
+            max_detections=100,
+            obj_thresh=0.5,
+        )[0]
         # Rescale vá» áº£nh gá»‘c
         if dets.shape[0] > 0:
             dets[:, [0, 2]] *= w / img_size

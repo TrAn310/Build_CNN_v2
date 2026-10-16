@@ -8,8 +8,8 @@ Cách dùng:
 import argparse
 import cv2
 import torch
-from Src.models.detector import CustomPPEDetector
-from Src.inference.postprocess import postprocess
+from src.models.detector import CustomPPEDetector
+from src.inference.postprocess import postprocess
 
 CLASS_NAMES = [
     'Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest',

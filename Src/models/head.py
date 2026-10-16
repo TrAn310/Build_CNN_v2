@@ -8,7 +8,7 @@ Trong Ä‘Ã³: (tx, ty, tw, th, objectness, cls_0..cls_{C-1})
 
 import torch
 import torch.nn as nn
-from Src.models.blocks import ConvBlock
+from src.models.blocks import ConvBlock
 
 
 class DetectionHead(nn.Module):

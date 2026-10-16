@@ -15,11 +15,11 @@ def preprocess(img_rgb, img_size=640):
 
 @torch.no_grad()
 def predict_image(model, img_path, device='cpu', img_size=640,
-                  conf_thresh=0.3, iou_thresh=0.5, num_classes=3):
+                  conf_thresh=0.3, iou_thresh=0.5, num_classes=10):
     """
     return: (img_rgb, dets) vá»›i dets [N,6] toáº¡ Ä‘á»™ pixel trÃªn áº£nh gá»‘c.
     """
-    from Src.inference.postprocess import postprocess
+    from src.inference.postprocess import postprocess
     img = cv2.imread(img_path)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     orig_h, orig_w = img_rgb.shape[:2]

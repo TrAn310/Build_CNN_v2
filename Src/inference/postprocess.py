@@ -5,7 +5,7 @@ NMS tự code + pipeline decode -> NMS.
 """
 
 import torch
-from Src.inference.decoder import decode_predictions
+from src.inference.decoder import decode_predictions
 
 
 def iou_batch(boxes, box):

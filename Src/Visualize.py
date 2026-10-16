@@ -5,8 +5,8 @@ import torch
 from PIL import Image, ImageDraw
 import cv2
 import numpy as np
-from Src.models.detector import CustomPPEDetector
-from Src.inference.postprocess import postprocess
+from src.models.detector import CustomPPEDetector
+from src.inference.postprocess import postprocess
 
 model = CustomPPEDetector(num_classes=10)
 model.load_state_dict(torch.load('Src/outputs/checkpoints/best_model.pth'))

@@ -5,13 +5,13 @@ Kiểm tra target assignment cho 2 person trong ảnh overfit.
 
 import sys
 import os
-sys.path.insert(0, r'D:\NCKH\CNN_ver2\Build_CNN_v2\Src')
+sys.path.insert(0, 'CNN_v2/Src')
 
 import torch
 from run_overfit import build_targets, parse_yolo_label
 
 # Load label — dùng absolute path
-LABEL_PATH = r'D:\NCKH\CNN_ver2\Build_CNN_v2\Src\overfit_test\test.txt'
+LABEL_PATH = 'CNN_v2/src/overfit_test/test.txt'
 
 targets = parse_yolo_label(LABEL_PATH)
 print(f'Loaded label: {LABEL_PATH}')

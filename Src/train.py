@@ -3,7 +3,7 @@ Entry point train.
 """
 
 import argparse
-from Src.training.train import train
+from src.training.train import train
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--img_size', type=int, default=640)
-    parser.add_argument('--num_classes', type=int, default=3)
+    parser.add_argument('--num_classes', type=int, default=10)
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--width_mult', type=float, default=1.0)

@@ -13,9 +13,9 @@ Pipeline:
 """
 
 import torch.nn as nn
-from Src.models.backbone import Backbone
-from Src.models.neck import Neck
-from Src.models.head import DetectionHead
+from src.models.backbone import Backbone
+from src.models.neck import Neck
+from src.models.head import DetectionHead
 
 
 class CustomPPEDetector(nn.Module):

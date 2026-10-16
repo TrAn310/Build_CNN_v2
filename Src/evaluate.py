@@ -7,10 +7,10 @@ import argparse
 import torch
 from torch.utils.data import DataLoader
 
-from Src.models.detector import CustomPPEDetector
-from Src.dataset.dataset import PPEDetectionDataset
-from Src.dataset.collate import collate_fn
-from Src.evaluation.evaluator import evaluate, print_metrics
+from src.models.detector import CustomPPEDetector
+from src.dataset.dataset import PPEDetectionDataset
+from src.dataset.collate import collate_fn
+from src.evaluation.evaluator import evaluate, print_metrics
 
 
 def main():
